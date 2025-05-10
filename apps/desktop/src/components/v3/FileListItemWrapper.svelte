@@ -4,16 +4,16 @@
 	import { draggableChips } from '$lib/dragging/draggable';
 	import { ChangeDropData } from '$lib/dragging/draggables';
 	import { getFilename } from '$lib/files/utils';
-	import { DiffService } from '$lib/hunks/diffService.svelte';
+	import { previousPathBytesFromTreeChange, type TreeChange } from '$lib/hunks/change';
 	import { ChangeSelectionService } from '$lib/selection/changeSelection.svelte';
 	import { IdSelection } from '$lib/selection/idSelection.svelte';
 	import { key, type SelectionId } from '$lib/selection/key';
+	import { TestId } from '$lib/testing/testIds';
 	import { computeChangeStatus } from '$lib/utils/fileStatus';
 	import { getContext } from '@gitbutler/shared/context';
 	import FileListItemV3 from '@gitbutler/ui/file/FileListItemV3.svelte';
 	import FileViewHeader from '@gitbutler/ui/file/FileViewHeader.svelte';
 	import { stickyHeader } from '@gitbutler/ui/utils/stickyHeader';
-	import type { TreeChange } from '$lib/hunks/change';
 	import type { Rename } from '$lib/hunks/change';
 	import type { UnifiedDiff } from '$lib/hunks/diff';
 
@@ -55,7 +55,6 @@
 
 	const idSelection = getContext(IdSelection);
 	const changeSelection = getContext(ChangeSelectionService);
-	const diffService = getContext(DiffService);
 
 	let contextMenu = $state<ReturnType<typeof FileContextMenu>>();
 	let draggableEl: HTMLDivElement | undefined = $state();
@@ -63,9 +62,6 @@
 	const selection = $derived(changeSelection.getById(change.path));
 	const indeterminate = $derived(selection.current && selection.current.type === 'partial');
 	const selectedChanges = $derived(idSelection.treeChanges(projectId, selectionId));
-	const diffResult = $derived(diffService.getDiff(projectId, change));
-
-	const isBinary = $derived(diffResult.current.data?.type === 'Binary');
 	const isUncommitted = $derived(selectionId?.type === 'worktree');
 
 	const previousTooltipText = $derived(
@@ -89,10 +85,11 @@
 			changeSelection.remove(change.path);
 		} else {
 			const { path, pathBytes } = change;
-			changeSelection.add({
+			changeSelection.upsert({
 				type: 'full',
 				path,
-				pathBytes
+				pathBytes,
+				previousPathBytes: previousPathBytesFromTreeChange(change)
 			});
 		}
 	}
@@ -116,6 +113,7 @@
 </script>
 
 <div
+	data-testid={TestId.FileListItem}
 	use:stickyHeader={{
 		disabled: !isHeader
 	}}
@@ -128,14 +126,14 @@
 		data: new ChangeDropData(change, idSelection, selectionId),
 		viewportId: 'board-viewport',
 		selector: '.selected-draggable',
-		disabled: showCheckbox
+		disabled: showCheckbox,
+		chipType: 'file'
 	}}
 >
 	<FileContextMenu
 		bind:this={contextMenu}
 		trigger={draggableEl}
 		{isUncommitted}
-		{isBinary}
 		{unSelectChanges}
 	/>
 

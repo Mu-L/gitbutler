@@ -26,7 +26,7 @@
 	const {
 		viewport,
 		initiallyVisible = false,
-		thickness = '0.563rem',
+		thickness = '0.5rem',
 		padding = {},
 		shift = '0',
 		horz = false,
@@ -90,8 +90,6 @@
 	const shouldAlwaysShow = $derived(whenToShow === 'always' && isScrollable);
 
 	let visible = $state(false);
-
-	// let visible = $state(false);
 
 	$effect(() => {
 		visible = shouldShowInitially || (shouldShowOnHover && initiallyVisible) || shouldAlwaysShow;
@@ -157,7 +155,7 @@
 		};
 	}
 
-	function updateTrack() {
+	export function updateTrack() {
 		wholeHeight = viewport?.scrollHeight ?? 0;
 		wholeWidth = viewport?.scrollWidth ?? 0;
 		trackHeight = viewport?.clientHeight ?? 0;
@@ -290,8 +288,8 @@
 	style:height={vert ? `100%` : thickness}
 	style:z-index={zIndex}
 	style="
-    --scrollbar-shift-vertical: {vert ? '0' : shift};
-    --scrollbar-shift-horizontal: {horz ? '0' : shift};
+    --scrollbar-shift-vertical: {vert ? '0' : shift || 0};
+    --scrollbar-shift-horizontal: {horz ? '0' : shift || 0};
     "
 >
 	<div
@@ -337,7 +335,7 @@
 	/* modify vertical scrollbar */
 	.scrollbar-track.vert {
 		& .scrollbar-thumb {
-			transform: scaleX(0.6);
+			transform: scaleX(0.75);
 			transform-origin: right;
 		}
 	}
@@ -345,7 +343,7 @@
 	/* modify horizontal scrollbar */
 	.scrollbar-track.horz {
 		& .scrollbar-thumb {
-			transform: scaleY(0.65);
+			transform: scaleY(0.75);
 			transform-origin: bottom;
 		}
 	}

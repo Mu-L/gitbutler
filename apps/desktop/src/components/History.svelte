@@ -20,6 +20,8 @@
 		onHide: () => void;
 	}
 
+	const MIN_SNAPSHOTS_TO_LOAD = 30;
+
 	const { onHide }: Props = $props();
 
 	const project = getContext(Project);
@@ -108,7 +110,7 @@
 			<div class="snapshots-wrapper">
 				<!-- SNAPSHOTS FEED -->
 				<LazyloadContainer
-					minTriggerCount={30}
+					minTriggerCount={MIN_SNAPSHOTS_TO_LOAD}
 					ontrigger={() => {
 						onLastInView();
 					}}
@@ -162,7 +164,7 @@
 				{/if}
 
 				<!-- ALL SNAPSHOTS LOADED -->
-				{#if !$loading && $isAllLoaded}
+				{#if (!$loading && $isAllLoaded) || $snapshots.length <= MIN_SNAPSHOTS_TO_LOAD}
 					<div class="welcome-point">
 						<div class="welcome-point__icon">
 							<Icon name="finish" />
@@ -261,7 +263,7 @@
 		flex-direction: column;
 		height: 100%;
 		overflow: hidden;
-		background-color: var(--clr-bg-2);
+		background-color: var(--clr-bg-1);
 		border-left: 1px solid var(--clr-border-2);
 		width: 480px;
 	}
@@ -350,7 +352,7 @@
 		z-index: var(--z-ground);
 		position: sticky;
 		top: -1px;
-		padding: 14px 14px 12px 86px;
+		padding: 10px 14px 8px 86px;
 		border-top: 1px solid var(--clr-border-2);
 		border-bottom: 1px solid var(--clr-border-2);
 		background-color: var(--clr-bg-2);
@@ -378,15 +380,14 @@
 	/* WELCOME POINT */
 	.welcome-point {
 		display: flex;
-		gap: 10px;
-		padding: 12px 16px 32px 84px;
+		gap: 12px;
+		padding: 12px 16px 32px 86px;
 	}
 
 	.welcome-point__content {
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
-		margin-top: 4px;
 	}
 
 	.welcome-point__caption {

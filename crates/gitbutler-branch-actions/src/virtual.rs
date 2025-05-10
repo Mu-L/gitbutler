@@ -3,7 +3,6 @@ use crate::{
     dependencies::stack_dependencies_from_workspace,
     file::VirtualBranchFile,
     hunk::VirtualBranchHunk,
-    integration::get_workspace_head,
     remote::branch_to_remote_branch,
     stack::stack_series,
     status::{get_applied_status, get_applied_status_cached},
@@ -137,7 +136,7 @@ pub fn unapply_ownership(
 ) -> Result<()> {
     let vb_state = ctx.project().virtual_branches();
 
-    let workspace_commit_id = get_workspace_head(ctx)?;
+    let workspace_commit_id = but_workspace::head(ctx)?;
 
     let applied_statuses = get_applied_status(ctx, None)
         .context("failed to get status by branch")?
@@ -304,7 +303,7 @@ pub fn list_virtual_branches(
     ctx: &CommandContext,
     perm: &mut WorktreeWritePermission,
 ) -> Result<StackListResult> {
-    let diffs = gitbutler_diff::workdir(ctx.repo(), get_workspace_head(ctx)?)?;
+    let diffs = gitbutler_diff::workdir(ctx.repo(), but_workspace::head(ctx)?)?;
     list_virtual_branches_cached(ctx, perm, &diffs)
 }
 
@@ -352,7 +351,7 @@ pub fn list_virtual_branches_cached(
 
         // find all commits on head that are not on target.sha
         let commits = repo.log(
-            branch.head(&gix_repo)?.to_git2(),
+            branch.head_oid(&gix_repo)?.to_git2(),
             LogUntil::Commit(default_target.sha),
             false,
         )?;
@@ -362,7 +361,7 @@ pub fn list_virtual_branches_cached(
         let merge_base = gix_repo
             .merge_base_with_graph(
                 default_target.sha.to_gix(),
-                branch.head(&gix_repo)?,
+                branch.head_oid(&gix_repo)?,
                 check_commit.graph,
             )
             .context("failed to find merge base")?;
@@ -419,7 +418,7 @@ pub fn list_virtual_branches_cached(
             requires_force = force // derive force requirement from the series
         }
 
-        let head = branch.head(&gix_repo)?;
+        let head = branch.head_oid(&gix_repo)?;
         let tree = branch.tree(ctx)?;
         let branch = VirtualBranch {
             id: branch.id,
@@ -515,7 +514,7 @@ fn is_requires_force(ctx: &CommandContext, stack: &Stack, repo: &gix::Repository
 
     let merge_base = ctx
         .repo()
-        .merge_base(upstream_commit.id(), stack.head(repo)?.to_git2())?;
+        .merge_base(upstream_commit.id(), stack.head_oid(repo)?.to_git2())?;
 
     Ok(merge_base != upstream_commit.id())
 }
@@ -664,7 +663,7 @@ pub(crate) fn reset_branch(
 
     let gix_repo = ctx.gix_repo()?;
     let mut stack = vb_state.get_stack_in_workspace(stack_id)?;
-    if stack.head(&gix_repo)? == target_commit_id.to_gix() {
+    if stack.head_oid(&gix_repo)? == target_commit_id.to_gix() {
         // nothing to do
         return Ok(());
     }
@@ -673,7 +672,7 @@ pub(crate) fn reset_branch(
         && !ctx
             .repo()
             .l(
-                stack.head(&gix_repo)?.to_git2(),
+                stack.head_oid(&gix_repo)?.to_git2(),
                 LogUntil::Commit(default_target.sha),
                 false,
             )?
@@ -684,11 +683,11 @@ pub(crate) fn reset_branch(
 
     // Compute the old workspace before resetting, so we can figure out
     // what hunks were released by this reset, and assign them to this branch.
-    let old_head = get_workspace_head(ctx)?;
+    let old_head = but_workspace::head(ctx)?;
 
     stack.set_stack_head(&vb_state, &gix_repo, target_commit_id, None)?;
 
-    let updated_head = get_workspace_head(ctx)?;
+    let updated_head = but_workspace::head(ctx)?;
     let repo = ctx.repo();
     let diff = trees(
         repo,
@@ -737,7 +736,7 @@ pub fn commit(
     ownership: Option<&BranchOwnershipClaims>,
 ) -> Result<git2::Oid> {
     // get the files to commit
-    let diffs = gitbutler_diff::workdir(ctx.repo(), get_workspace_head(ctx)?)?;
+    let diffs = gitbutler_diff::workdir(ctx.repo(), but_workspace::head(ctx)?)?;
     let statuses = get_applied_status_cached(ctx, None, &diffs)
         .context("failed to get status by branch")?
         .branches;
@@ -774,21 +773,21 @@ pub fn commit(
                 Some((file.path, hunks))
             }
         });
-        gitbutler_diff::write::hunks_onto_commit(ctx, branch.head(&gix_repo)?.to_git2(), files)?
+        gitbutler_diff::write::hunks_onto_commit(ctx, branch.head_oid(&gix_repo)?.to_git2(), files)?
     } else {
         let files = files
             .into_iter()
             .map(|file| (file.path, file.hunks))
             .collect::<Vec<(PathBuf, Vec<VirtualBranchHunk>)>>();
-        gitbutler_diff::write::hunks_onto_commit(ctx, branch.head(&gix_repo)?.to_git2(), files)?
+        gitbutler_diff::write::hunks_onto_commit(ctx, branch.head_oid(&gix_repo)?.to_git2(), files)?
     };
 
     let git_repo = ctx.repo();
     let parent_commit = git_repo
-        .find_commit(branch.head(&gix_repo)?.to_git2())
+        .find_commit(branch.head_oid(&gix_repo)?.to_git2())
         .context(format!(
             "failed to find commit {:?}",
-            branch.head(&gix_repo)
+            branch.head_oid(&gix_repo)
         ))?;
     let tree = git_repo
         .find_tree(tree_oid)
@@ -850,7 +849,7 @@ pub(crate) fn push(
     };
 
     ctx.push(
-        stack.head(&gix_repo)?.to_git2(),
+        stack.head_oid(&gix_repo)?.to_git2(),
         &remote_branch,
         with_force,
         None,
@@ -858,7 +857,7 @@ pub(crate) fn push(
     )?;
 
     stack.upstream = Some(remote_branch.clone());
-    stack.upstream_head = Some(stack.head(&gix_repo)?.to_git2());
+    stack.upstream_head = Some(stack.head_oid(&gix_repo)?.to_git2());
     vb_state
         .set_stack(stack.clone())
         .context("failed to write target branch after push")?;
@@ -1239,8 +1238,6 @@ pub(crate) fn move_commit_file(
         )
         .context("failed to create commit")?;
 
-    dbg!(&new_to_commit_oid);
-
     // another rebase
     let mut steps = stack.as_rebase_steps(ctx, &gix_repo)?;
     // replace the "to" commit in the rebase steps with the new "to" commit which has the moved changes added
@@ -1344,7 +1341,7 @@ pub(crate) fn update_commit_message(
 
     let mut stack = vb_state.get_stack_in_workspace(stack_id)?;
     let branch_commit_oids = ctx.repo().l(
-        stack.head(&gix_repo)?.to_git2(),
+        stack.head_oid(&gix_repo)?.to_git2(),
         LogUntil::Commit(default_target.sha),
         false,
     )?;

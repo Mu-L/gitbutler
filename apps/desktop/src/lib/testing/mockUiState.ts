@@ -21,7 +21,9 @@ const MOCK_PROJECT_UI_STATE: ProjectUiState = {
 	drawerFullScreen: false,
 	commitTitle: '',
 	commitDescription: '',
-	branchesSelection: { branchName: 'test' }
+	branchesSelection: { branchName: 'test' },
+	stackId: undefined,
+	editingCommitMessage: false
 };
 
 const MOCK_GLOBAL_UI_STATE: GlobalUiState = {
@@ -29,6 +31,7 @@ const MOCK_GLOBAL_UI_STATE: GlobalUiState = {
 	leftWidth: 17.5,
 	stacksViewWidth: 21.25,
 	drawerSplitViewWidth: 20,
+	historySidebarWidth: 30,
 	useRichText: true,
 	aiSuggestionsOnType: true,
 	selectedTip: undefined,

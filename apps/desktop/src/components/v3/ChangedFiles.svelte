@@ -17,9 +17,10 @@
 		selectionId: SelectionId;
 		changes: TreeChange[];
 		title: string;
+		testId?: string;
 	};
 
-	const { projectId, stackId, selectionId, changes, title }: Props = $props();
+	const { projectId, stackId, selectionId, changes, title, testId }: Props = $props();
 
 	const [focusManager] = inject(FocusManager);
 
@@ -32,12 +33,13 @@
 </script>
 
 <div
+	data-testid={testId}
 	class="changed-files"
 	use:focusable={{ id: Focusable.ChangedFiles, parentId: Focusable.Workspace }}
 >
 	<div class="changed-files__header" use:stickyHeader>
 		<div class="changed-files__header-left">
-			<h4 class="text-14 text-semibold">{title}</h4>
+			<h4 class="text-14 text-semibold truncate">{title}</h4>
 			<Badge>{changes.length}</Badge>
 		</div>
 		<FileListMode bind:mode={listMode} persist="committed" />
@@ -65,7 +67,7 @@
 		padding: 10px 10px 10px 14px;
 		display: flex;
 		align-items: center;
-		gap: 4px;
+		gap: 8px;
 		justify-content: space-between;
 		background-color: var(--clr-bg-1);
 	}
@@ -74,5 +76,6 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
+		overflow: hidden;
 	}
 </style>

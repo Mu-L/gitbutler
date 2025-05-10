@@ -9,6 +9,7 @@
 		projectId: string;
 		branchName: string;
 		isCommitting?: boolean;
+		expand?: boolean;
 		header?: Snippet;
 	} & (
 		| {
@@ -27,15 +28,15 @@
 		  }
 	);
 
-	let { header, branchName, ...args }: Props = $props();
+	let { header, branchName, expand, ...args }: Props = $props();
 
 	const [uiState] = inject(UiState);
 
-	const selection = $derived(
-		args.type === 'stack-branch' ? uiState.stack(args.stackId).selection.get() : undefined
+	const stackState = $derived(
+		args.type === 'stack-branch' ? uiState.stack(args.stackId) : undefined
 	);
-
-	const selected = $derived(selection?.current?.branchName === branchName);
+	const selection = $derived(stackState ? stackState.selection.current : undefined);
+	const selected = $derived(selection?.branchName === branchName);
 </script>
 
 {#if args.type === 'stack-branch' && !args.first}
@@ -45,6 +46,7 @@
 	class="branch-card"
 	class:selected
 	class:draft={args.type === 'draft-branch'}
+	class:expand
 	data-series-name={branchName}
 >
 	{@render header?.()}
@@ -65,5 +67,8 @@
 		&.draft {
 			border-radius: var(--radius-ml) var(--radius-ml) 0 0;
 		}
+	}
+	.expand {
+		height: 100%;
 	}
 </style>

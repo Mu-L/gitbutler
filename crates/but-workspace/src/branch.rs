@@ -498,6 +498,7 @@ pub struct Stack {
     ///
     /// The actual index is dependent on the order in which they are merged into the workspace commit,
     /// if the stack is merged at all.
+    // TODO: find a way to map this to (or provide) legacy StackIDs
     pub index: usize,
     /// The commit that the tip of the stack is pointing to.
     /// It is `None` if there is no commit as this repository is newly initialized.
@@ -512,6 +513,19 @@ pub struct Stack {
     ///
     /// The backend auto-applies floating stashes, but if that didn't happen, the frontend may guide the user.
     pub stash_status: Option<StashStatus>,
+}
+
+impl Stack {
+    /// Return the name of the top-most [`StackSegment`].
+    ///
+    /// It is `None` if this branch is the top-most stack segment and the `ref_name` wasn't pointing to
+    /// a commit anymore that was reached by our rev-walk.
+    /// This can happen if the ref is deleted, or if it was advanced by other means.
+    pub fn name(&self) -> Option<&gix::refs::FullNameRef> {
+        self.segments
+            .first()
+            .and_then(|name| name.ref_name.as_ref().map(|name| name.as_ref()))
+    }
 }
 
 /// A list of all commits
@@ -535,7 +549,7 @@ impl TryFrom<gix::Id<'_>> for BranchCommit {
         Ok(BranchCommit {
             id: value.detach(),
             title: commit.message().title.to_owned(),
-            committed_date: commit.committer.time,
+            committed_date: commit.committer.time()?,
         })
     }
 }
@@ -547,11 +561,11 @@ pub enum RefLocation {
     ///
     /// This is the common case.
     ReachableFromWorkspaceCommit,
-    /// The given reference can reach into this workspace segment, but isn't inside of it.
+    /// The given reference can reach into this workspace segment, but isn't inside it.
     ///
-    /// This happens if someone checked out the reference directly and commited into it.
+    /// This happens if someone checked out the reference directly and committed into it.
     OutsideOfWorkspace,
-    /// `HEAD` points directly to the
+    /// `HEAD` points directly to the reference, i.e., it is checked out.
     AtHead,
 }
 
@@ -572,7 +586,9 @@ pub struct StackSegment {
     /// The list could be empty.
     pub commits_unique_from_tip: Vec<BranchCommit>,
     /// The commits that are reachable from this branch, but not from the tip of the *Stack*.
-    /// This happens if the branch is advanced/moved by other means.
+    /// This happens if the branch is advanced/moved by other means, i.e., the branch was checked out directly
+    /// and advanced with manual Git commits.
+    /// Only ever set for the top-most segment.
     pub commits_unintegratd_local: Vec<BranchCommit>,
     /// Commits that are reachable from the remote-tracking branch associated with this branch,
     /// but are not reachable from this branch.

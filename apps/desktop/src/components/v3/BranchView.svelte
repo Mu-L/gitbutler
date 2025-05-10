@@ -3,60 +3,38 @@
 	import BranchReview from '$components/BranchReview.svelte';
 	import DeleteBranchModal from '$components/DeleteBranchModal.svelte';
 	import ReduxResult from '$components/ReduxResult.svelte';
-	import SeriesHeaderContextMenuContents from '$components/SeriesHeaderContextMenuContents.svelte';
-	import BranchBadge from '$components/v3/BranchBadge.svelte';
+	import BranchDetails from '$components/v3/BranchDetails.svelte';
+	import BranchHeaderContextMenu from '$components/v3/BranchHeaderContextMenu.svelte';
 	import ChangedFiles from '$components/v3/ChangedFiles.svelte';
 	import Drawer from '$components/v3/Drawer.svelte';
+	import KebabButton from '$components/v3/KebabButton.svelte';
 	import NewBranchModal from '$components/v3/NewBranchModal.svelte';
 	import newBranchSmolSVG from '$lib/assets/empty-state/new-branch-smol.svg?raw';
-	import { DefaultForgeFactory } from '$lib/forge/forgeFactory.svelte';
 	import { StackService } from '$lib/stacks/stackService.svelte';
 	import { combineResults } from '$lib/state/helpers';
 	import { TestId } from '$lib/testing/testIds';
-	import { UserService } from '$lib/user/userService';
-	import { openExternalUrl } from '$lib/utils/url';
 	import { inject } from '@gitbutler/shared/context';
-	import Button from '@gitbutler/ui/Button.svelte';
-	import ContextMenu from '@gitbutler/ui/ContextMenu.svelte';
 	import Icon from '@gitbutler/ui/Icon.svelte';
 	import Tooltip from '@gitbutler/ui/Tooltip.svelte';
-	import AvatarGroup from '@gitbutler/ui/avatar/AvatarGroup.svelte';
-	import { getTimeAgo } from '@gitbutler/ui/utils/timeAgo';
+	import type { BranchHeaderContextItem } from '$components/v3/BranchHeaderContextMenu.svelte';
 
 	interface Props {
 		stackId: string;
 		projectId: string;
 		branchName: string;
+		onerror?: (err: unknown) => void;
 	}
 
-	const { stackId, projectId, branchName }: Props = $props();
+	const { stackId, projectId, branchName, onerror }: Props = $props();
 
-	const [stackService, userService, forge] = inject(StackService, UserService, DefaultForgeFactory);
-	const user = $derived(userService.user);
+	const [stackService] = inject(StackService);
 
 	const branchesResult = $derived(stackService.branches(projectId, stackId));
 
-	const branchResult = $derived(stackService.branchByName(projectId, stackId, branchName));
-	const branchDetailsResult = $derived(stackService.branchDetails(projectId, stackId, branchName));
+	const branchResult = $derived(stackService.branchDetails(projectId, stackId, branchName));
 	const topCommitResult = $derived(stackService.commitAt(projectId, stackId, branchName, 0));
 
-	const changesResult = stackService.branchChanges(projectId, stackId, branchName);
-	const forgeBranch = $derived(forge.current?.branch(branchName));
-
-	function getGravatarUrl(email: string, existingGravatarUrl: string): string {
-		if ($user?.email === undefined) {
-			return existingGravatarUrl;
-		}
-		if (email === $user.email) {
-			return $user.picture ?? existingGravatarUrl;
-		}
-		return existingGravatarUrl;
-	}
-
-	// context menu
-	let contextMenu = $state<ReturnType<typeof ContextMenu>>();
-	let kebabTrigger = $state<HTMLButtonElement>();
-	let isContextMenuOpen = $state(false);
+	let headerMenuContext = $state<BranchHeaderContextItem>();
 
 	let newBranchModal = $state<ReturnType<typeof NewBranchModal>>();
 	let renameBranchModal = $state<BranchRenameModal>();
@@ -66,14 +44,10 @@
 <ReduxResult
 	{stackId}
 	{projectId}
-	result={combineResults(
-		branchResult.current,
-		branchesResult.current,
-		branchDetailsResult.current,
-		topCommitResult.current
-	)}
+	{onerror}
+	result={combineResults(branchesResult.current, branchResult.current, topCommitResult.current)}
 >
-	{#snippet children([branch, branches, branchDetails, topCommit], { stackId, projectId })}
+	{#snippet children([branches, branch, topCommit], { stackId, projectId })}
 		{@const hasCommits = !!topCommit}
 		{@const remoteTrackingBranch = branch.remoteTrackingBranch}
 		<Drawer {projectId} {stackId}>
@@ -96,48 +70,30 @@
 				</div>
 			{/snippet}
 
-			{#snippet kebabMenu()}
-				<Button
-					size="tag"
-					icon="kebab"
-					kind="ghost"
-					activated={isContextMenuOpen}
-					bind:el={kebabTrigger}
-					onclick={() => {
-						contextMenu?.toggle();
-					}}
+			{#snippet kebabMenu(header)}
+				{@const data = {
+					branch,
+					prNumber: branch.prNumber || undefined,
+					stackLength: branches.length
+				}}
+				<KebabButton
+					contextElement={header}
+					onclick={(element) => (headerMenuContext = { data, position: { element } })}
+					oncontext={(coords) => (headerMenuContext = { data, position: { coords } })}
+					activated={!!headerMenuContext?.position.element}
 				/>
 			{/snippet}
 
 			{#if hasCommits}
-				<div class="branch-view">
-					<div class="branch-view__header-container">
-						<div class="text-12 branch-view__header-details-row">
-							<BranchBadge pushStatus={branchDetails.pushStatus} />
-							<span class="branch-view__details-divider">•</span>
-
-							{#if branchDetails.isConflicted}
-								<span class="branch-view__header-details-row-conflict">Has conflicts</span>
-								<span class="branch-view__details-divider">•</span>
-							{/if}
-
-							<span>Contribs:</span>
-							<AvatarGroup
-								maxAvatars={2}
-								avatars={branchDetails.authors.map((a) => ({
-									name: a.name,
-									srcUrl: getGravatarUrl(a.email, a.gravatarUrl)
-								}))}
-							/>
-
-							<span class="branch-view__details-divider">•</span>
-
-							<span class="truncate">{getTimeAgo(new Date(branchDetails.lastUpdatedAt))}</span>
-						</div>
-					</div>
-
-					<BranchReview {stackId} {projectId} branchName={branch.name} />
-				</div>
+				<BranchDetails {branch}>
+					<BranchReview
+						{stackId}
+						{projectId}
+						branchName={branch.name}
+						prNumber={branch.prNumber || undefined}
+						reviewId={branch.reviewId || undefined}
+					/>
+				</BranchDetails>
 			{:else}
 				<div class="branch-view__empty-state">
 					<div class="branch-view__empty-state__image">
@@ -154,55 +110,24 @@
 			{/if}
 
 			{#snippet filesSplitView()}
-				{#if hasCommits}
-					<ReduxResult {projectId} {stackId} result={changesResult.current}>
-						{#snippet children(changes, env)}
-							<ChangedFiles
-								title="All changed files"
-								projectId={env.projectId}
-								stackId={env.stackId}
-								selectionId={{ type: 'branch', stackId, branchName }}
-								{changes}
-							/>
-						{/snippet}
-					</ReduxResult>
-				{/if}
+				{@const changesResult = stackService.branchChanges({ projectId, stackId, branchName })}
+				<ReduxResult {projectId} {stackId} result={changesResult.current} {onerror}>
+					{#snippet children(changes, { projectId, stackId })}
+						<ChangedFiles
+							testId={TestId.BranchChangedFileList}
+							title="All changed files"
+							{projectId}
+							{stackId}
+							selectionId={{ type: 'branch', stackId, branchName }}
+							{changes}
+						/>
+					{/snippet}
+				</ReduxResult>
 			{/snippet}
 		</Drawer>
 
 		<NewBranchModal {projectId} {stackId} bind:this={newBranchModal} />
 
-		<ContextMenu
-			bind:this={contextMenu}
-			testId={TestId.BranchHeaderContextMenu}
-			leftClickTrigger={kebabTrigger}
-		>
-			<SeriesHeaderContextMenuContents
-				{projectId}
-				contextMenuEl={contextMenu}
-				{stackId}
-				branchName={branch.name}
-				seriesCount={branches.length}
-				isTopBranch={branches[0]?.name === branch.name}
-				descriptionOption={false}
-				onGenerateBranchName={() => {
-					throw new Error('Not implemented!');
-				}}
-				onAddDependentSeries={() => newBranchModal?.show()}
-				onOpenInBrowser={() => {
-					const url = forgeBranch?.url;
-					if (url) openExternalUrl(url);
-				}}
-				isPushed={!!branch.remoteTrackingBranch}
-				branchType={topCommit?.state.type || 'LocalOnly'}
-				showBranchRenameModal={() => {
-					renameBranchModal?.show();
-				}}
-				showDeleteBranchModal={() => {
-					deleteBranchModal?.show();
-				}}
-			/>
-		</ContextMenu>
 		<BranchRenameModal
 			{projectId}
 			{stackId}
@@ -219,14 +144,11 @@
 	{/snippet}
 </ReduxResult>
 
-<style>
-	.branch-view {
-		display: flex;
-		flex-direction: column;
-		gap: 16px;
-		height: 100%;
-	}
+{#if headerMenuContext}
+	<BranchHeaderContextMenu {projectId} {stackId} bind:context={headerMenuContext} />
+{/if}
 
+<style>
 	.branch__header {
 		display: flex;
 		align-items: center;
@@ -252,30 +174,6 @@
 		}
 	}
 
-	.branch-view__header-container {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		gap: 16px;
-		overflow: hidden;
-	}
-
-	.branch-view__header-details-row {
-		width: 100%;
-		color: var(--clr-text-2);
-		display: flex;
-		align-items: center;
-		gap: 6px;
-	}
-
-	.branch-view__header-details-row-conflict {
-		color: var(--clr-theme-err-element);
-	}
-
-	.branch-view__details-divider {
-		color: var(--clr-text-3);
-	}
-
 	/* EMPTY STATE */
 	.branch-view__empty-state {
 		flex: 1;
@@ -285,6 +183,10 @@
 		padding: 30px;
 		max-width: 540px;
 		margin: 0 auto;
+
+		@container drawer-content (max-width: 400px) {
+			padding: 10px;
+		}
 	}
 
 	.branch-view__empty-state__image {

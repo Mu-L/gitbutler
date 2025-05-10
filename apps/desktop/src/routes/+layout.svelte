@@ -2,6 +2,10 @@
 	import '@gitbutler/ui/main.css';
 	import '../styles/styles.css';
 
+	import { browser } from '$app/environment';
+	import { dev } from '$app/environment';
+	import { beforeNavigate, afterNavigate } from '$app/navigation';
+	import { goto } from '$app/navigation';
 	import AppUpdater from '$components/AppUpdater.svelte';
 	import GlobalSettingsMenuAction from '$components/GlobalSettingsMenuAction.svelte';
 	import PromptModal from '$components/PromptModal.svelte';
@@ -27,6 +31,7 @@
 	import { SettingsService } from '$lib/config/appSettingsV2';
 	import { GitConfigService } from '$lib/config/gitConfigService';
 	import { ircEnabled, ircServer } from '$lib/config/uiFeatureFlags';
+	import DependencyService from '$lib/dependencies/dependencyService.svelte';
 	import { FileService } from '$lib/files/fileService';
 	import { ButRequestDetailsService } from '$lib/forge/butRequestDetailsService';
 	import { DefaultForgeFactory } from '$lib/forge/forgeFactory.svelte';
@@ -70,16 +75,12 @@
 	import { reactive } from '@gitbutler/shared/storeUtils';
 	import { UploadsService } from '@gitbutler/shared/uploads/uploadsService';
 	import { UserService as CloudUserService } from '@gitbutler/shared/users/userService';
-	import { LineManagerFactory } from '@gitbutler/ui/commitLines/lineManager';
 	import { LineManagerFactory as StackingLineManagerFactory } from '@gitbutler/ui/commitLines/lineManager';
+	import { LineManagerFactory } from '@gitbutler/ui/commitLines/lineManager';
 	import { setExternalLinkService } from '@gitbutler/ui/link/externalLinkService';
 	import { onMount, setContext, type Snippet } from 'svelte';
 	import { Toaster } from 'svelte-french-toast';
 	import type { LayoutData } from './$types';
-	import { dev } from '$app/environment';
-	import { browser } from '$app/environment';
-	import { goto } from '$app/navigation';
-	import { beforeNavigate, afterNavigate } from '$app/navigation';
 	import { env } from '$env/dynamic/public';
 
 	const { data, children }: { data: LayoutData; children: Snippet } = $props();
@@ -105,23 +106,18 @@
 		gitHubClient,
 		gitLabClient,
 		ircClient,
-		data.posthog
+		data.posthog,
+		data.settingsService
 	);
 
 	const ircService = new IrcService(clientState, clientState.dispatch, ircClient);
 	setContext(IrcService, ircService);
 
 	$effect(() => {
-		if ($user?.login && ircClient.connected) {
-			ircService.setWhoInfo({ nick: $user.login });
-		}
-	});
-
-	$effect(() => {
-		if (!$ircEnabled || !$ircServer) {
+		if (!$ircEnabled || !$ircServer || !$user || !$user.login) {
 			return;
 		}
-		ircClient.connect($ircServer);
+		ircClient.connect({ server: $ircServer, nick: $user.login });
 		return () => {
 			ircService.disconnect();
 		};
@@ -158,6 +154,7 @@
 	const organizationService = new OrganizationService(data.cloud, appState.appDispatch);
 	const cloudUserService = new CloudUserService(data.cloud, appState.appDispatch);
 	const cloudProjectService = new CloudProjectService(data.cloud, appState.appDispatch);
+	const dependecyService = new DependencyService(clientState.backendApi);
 
 	const cloudBranchService = new CloudBranchService(data.cloud, appState.appDispatch);
 	const cloudPatchService = new CloudPatchCommitService(data.cloud, appState.appDispatch);
@@ -235,6 +232,7 @@
 	setContext(ShortcutService, shortcutService);
 	setContext(DiffService, diffService);
 	setContext(UploadsService, data.uploadsService);
+	setContext(DependencyService, dependecyService);
 
 	setNameNormalizationServiceContext(new IpcNameNormalizationService(invoke));
 

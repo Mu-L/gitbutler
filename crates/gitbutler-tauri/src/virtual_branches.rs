@@ -1,8 +1,8 @@
 pub mod commands {
     use anyhow::{anyhow, Context};
     use but_settings::AppSettingsWithDiskSync;
-    use but_workspace::commit_engine::ui::DiffSpec;
-    use but_workspace::StackEntry;
+    use but_workspace::ui::StackEntry;
+    use but_workspace::DiffSpec;
     use gitbutler_branch::{BranchCreateRequest, BranchUpdateRequest};
     use gitbutler_branch_actions::branch_upstream_integration::IntegrationStrategy;
     use gitbutler_branch_actions::internal::StackListResult;
@@ -15,10 +15,11 @@ pub mod commands {
         RemoteBranchFile, RemoteCommit, StackOrder, VirtualBranchHunkRangeMap, VirtualBranches,
     };
     use gitbutler_command_context::CommandContext;
+    use gitbutler_oxidize::ObjectIdExt;
     use gitbutler_project as projects;
     use gitbutler_project::{FetchResult, ProjectId};
     use gitbutler_reference::{normalize_branch_name as normalize_name, Refname, RemoteRefname};
-    use gitbutler_stack::{BranchOwnershipClaims, StackId};
+    use gitbutler_stack::{BranchOwnershipClaims, StackId, VirtualBranchesHandle};
     use std::path::PathBuf;
     use tauri::State;
     use tracing::instrument;
@@ -175,13 +176,18 @@ pub mod commands {
         project_id: ProjectId,
         branch: &str,
         push_remote: Option<&str>, // optional different name of a remote to push to (defaults to same as the branch)
+        stash_uncommitted: Option<bool>,
     ) -> Result<BaseBranch, Error> {
         let project = projects.get(project_id)?;
         let ctx = CommandContext::open(&project, settings.get()?.clone())?;
         let branch_name = format!("refs/remotes/{}", branch)
             .parse()
             .context("Invalid branch name")?;
-        let base_branch = gitbutler_branch_actions::set_base_branch(&ctx, &branch_name)?;
+        let base_branch = gitbutler_branch_actions::set_base_branch(
+            &ctx,
+            &branch_name,
+            stash_uncommitted.unwrap_or_default(),
+        )?;
 
         // if they also sent a different push remote, set that too
         if let Some(push_remote) = push_remote {
@@ -367,12 +373,7 @@ pub mod commands {
         let project = projects.get(project_id)?;
         let ctx = CommandContext::open(&project, settings.get()?.clone())?;
         let commit_oid = git2::Oid::from_str(&commit_id).map_err(|e| anyhow!(e))?;
-        let oid = gitbutler_branch_actions::amend(
-            &ctx,
-            stack_id,
-            commit_oid,
-            worktree_changes.into_iter().map(Into::into).collect(),
-        )?;
+        let oid = gitbutler_branch_actions::amend(&ctx, stack_id, commit_oid, worktree_changes)?;
         emit_vbranches(&windows, project_id, ctx.app_settings());
         Ok(oid.to_string())
     }
@@ -431,12 +432,20 @@ pub mod commands {
         settings: State<'_, AppSettingsWithDiskSync>,
         project_id: ProjectId,
         stack_id: StackId,
-        commit_oid: String,
+        commit_oid: Option<String>,
         offset: i32,
     ) -> Result<(), Error> {
         let project = projects.get(project_id)?;
         let ctx = CommandContext::open(&project, settings.get()?.clone())?;
-        let commit_oid = git2::Oid::from_str(&commit_oid).map_err(|e| anyhow!(e))?;
+        let commit_oid = match commit_oid {
+            Some(oid) => git2::Oid::from_str(&oid).map_err(|e| anyhow!(e))?,
+            None => {
+                let state = VirtualBranchesHandle::new(ctx.project().gb_dir());
+                let stack = state.get_stack(stack_id)?;
+                let gix_repo = ctx.gix_repo()?;
+                stack.head_oid(&gix_repo)?.to_git2()
+            }
+        };
         gitbutler_branch_actions::insert_blank_commit(&ctx, stack_id, commit_oid, offset)?;
         emit_vbranches(&windows, project_id, ctx.app_settings());
         Ok(())

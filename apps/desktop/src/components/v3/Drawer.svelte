@@ -13,12 +13,14 @@
 		title?: string;
 		stackId?: string;
 		minHeight?: number;
+		noLeftPadding?: boolean;
 		header?: Snippet;
 		extraActions?: Snippet;
-		kebabMenu?: Snippet;
+		kebabMenu?: Snippet<[element: HTMLElement]>;
 		children: Snippet;
 		filesSplitView?: Snippet;
 		disableScroll?: boolean;
+		testId?: string;
 	};
 
 	const {
@@ -26,12 +28,14 @@
 		projectId,
 		stackId,
 		minHeight = 11,
+		noLeftPadding,
 		header,
 		extraActions,
 		kebabMenu,
 		children,
 		filesSplitView,
-		disableScroll
+		disableScroll,
+		testId
 	}: Props = $props();
 
 	const [uiState] = inject(UiState);
@@ -48,6 +52,7 @@
 	const contentWidth = $derived(uiState.global.drawerSplitViewWidth.get());
 	const scrollable = $derived(!disableScroll);
 
+	let headerDiv = $state<HTMLDivElement>();
 	let drawerDiv = $state<HTMLDivElement>();
 	let viewportEl = $state<HTMLElement>();
 
@@ -62,6 +67,7 @@
 </script>
 
 <div
+	data-testid={testId}
 	class="drawer"
 	bind:this={drawerDiv}
 	style:height
@@ -69,10 +75,10 @@
 	use:focusable={{ id: Focusable.CommitEditor, parentId: Focusable.WorkspaceMiddle }}
 >
 	<div class="drawer-wrap">
-		<div class="drawer-header">
+		<div bind:this={headerDiv} class="drawer-header" class:no-left-padding={noLeftPadding}>
 			<div class="drawer-header__title">
 				{#if title}
-					<h3 class="text-15 text-bold">
+					<h3 class="text-15 text-bold truncate">
 						{title}
 					</h3>
 				{/if}
@@ -89,7 +95,7 @@
 				{/if}
 				<div class="drawer-header__actions-group">
 					{#if kebabMenu}
-						{@render kebabMenu()}
+						{@render kebabMenu(headerDiv)}
 					{/if}
 					<Button
 						kind="ghost"
@@ -97,6 +103,7 @@
 						size="tag"
 						onclick={onToggleExpand}
 					/>
+
 					<Button kind="ghost" icon="cross" size="tag" onclick={onClose} />
 				</div>
 			</div>
@@ -231,7 +238,6 @@
 		&:not(.files-split-view) {
 			& .drawer__content {
 				flex: 1;
-				min-height: 100%;
 			}
 
 			& .drawer__content-scroll {
@@ -241,7 +247,6 @@
 
 		@container drawer (min-width: 530px) {
 			&.files-split-view .drawer__content-scroll {
-				min-width: 300px;
 				max-width: 500px;
 			}
 		}
@@ -266,6 +271,16 @@
 		}
 	}
 
+	.drawer__content {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		padding: 14px;
+		min-height: 100%;
+		container-type: inline-size;
+		container-name: drawer-content;
+	}
+
 	.drawer__content-scroll {
 		display: flex;
 		flex-direction: column;
@@ -280,13 +295,13 @@
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
-		min-width: 230px;
+		min-width: 200px;
 	}
 
-	.drawer__content {
-		position: relative;
-		display: flex;
-		flex-direction: column;
-		padding: 14px;
+	/* MODIFIERS */
+	.drawer-header {
+		&.no-left-padding {
+			padding-left: 0;
+		}
 	}
 </style>

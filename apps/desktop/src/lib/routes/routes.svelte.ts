@@ -45,12 +45,20 @@ export function isIrcPath() {
 	return isUrl<{ projectId: string }>('/[projectId]/irc');
 }
 
-export function isWorkspacePath() {
+export function isWorkspacePath(): { projectId: string; stackId?: string } | undefined {
 	const isStackUrl = isUrl<{ projectId: string; stackId?: string }>(
-		'/[projectId]/workspace/[stackId]'
+		'/[projectId]/workspace?stackId=[stackId]'
 	);
 	const isWorkspaceUrl = isUrl<{ projectId: string }>('/[projectId]/workspace');
 	return isStackUrl ?? isWorkspaceUrl;
+}
+
+export function historyPath(projectId: string) {
+	return `/${projectId}/history`;
+}
+
+export function isHistoryPath() {
+	return isUrl<{ projectId: string }>('/[projectId]/history');
 }
 
 export function branchesPath(projectId: string) {
@@ -59,6 +67,14 @@ export function branchesPath(projectId: string) {
 
 export function isBranchesPath() {
 	return isUrl<{ projectId: string }>('/[projectId]/branches');
+}
+
+export function isPreviewStackPath() {
+	return isUrl<{ projectId: string }>('/[projectId]/preview-stack/[stackId]');
+}
+
+export function previewStackPath(projectId: string, stackId: string) {
+	return `/${projectId}/preview-stack/${stackId}`;
 }
 
 export function isCommitPath() {
@@ -74,10 +90,6 @@ export function newSettingsPath(page?: string) {
 		return `/new-settings/${page}`;
 	}
 	return `/new-settings`;
-}
-
-export function stackPath(projectId: string, stackId: string) {
-	return `/${projectId}/workspace/${stackId}`;
 }
 
 export function clonePath() {

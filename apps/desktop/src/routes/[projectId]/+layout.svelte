@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import Chrome from '$components/Chrome.svelte';
 	import FileMenuAction from '$components/FileMenuAction.svelte';
 	import History from '$components/History.svelte';
@@ -8,6 +9,7 @@
 	import NotOnGitButlerBranch from '$components/NotOnGitButlerBranch.svelte';
 	import ProblemLoadingRepo from '$components/ProblemLoadingRepo.svelte';
 	import ProjectSettingsMenuAction from '$components/ProjectSettingsMenuAction.svelte';
+	import IrcPopups from '$components/v3/IrcPopups.svelte';
 	import { BaseBranch } from '$lib/baseBranch/baseBranch';
 	import BaseBranchService from '$lib/baseBranch/baseBranchService.svelte';
 	import { BranchService } from '$lib/branches/branchService.svelte';
@@ -47,7 +49,6 @@
 	import { onDestroy, setContext, type Snippet } from 'svelte';
 	import type { ProjectMetrics } from '$lib/metrics/projectMetrics';
 	import type { LayoutData } from './$types';
-	import { goto } from '$app/navigation';
 
 	const { data, children }: { data: LayoutData; children: Snippet } = $props();
 
@@ -144,7 +145,7 @@
 	setContext(FocusManager, focusManager);
 
 	const worktreeService = getContext(WorktreeService);
-	const idSelection = new IdSelection(worktreeService);
+	const idSelection = new IdSelection(worktreeService, stackService);
 	setContext(IdSelection, idSelection);
 
 	let intervalId: any;
@@ -312,7 +313,7 @@
 	{:else if $projectError}
 		<ProblemLoadingRepo error={$projectError} />
 	{:else if noViewableProjects}
-		<ProblemLoadingRepo error={'All projects are already open in another window'} />
+		<ProblemLoadingRepo error="All projects are already open in another window" />
 	{:else if baseBranch}
 		{#if $mode?.type === 'OpenWorkspace' || $mode?.type === 'Edit'}
 			<div class="view-wrap" role="group" ondragover={(e) => e.preventDefault()}>
@@ -329,16 +330,14 @@
 				{/if}
 			</div>
 		{:else if $mode?.type === 'OutsideWorkspace'}
-			{#if $settingsStore?.featureFlags.v3}
-				<Chrome {projectId} sidebarDisabled>
-					<NotOnGitButlerBranch {baseBranch} />
-				</Chrome>
-			{:else}
-				<NotOnGitButlerBranch {baseBranch} />
-			{/if}
+			<NotOnGitButlerBranch {baseBranch} />
 		{/if}
 	{/if}
 {/key}
+
+{#if $settingsStore?.featureFlags.v3}
+	<IrcPopups />
+{/if}
 
 <!-- Mounting metrics reporter in the board ensures dependent services are subscribed to. -->
 <MetricsReporter {projectId} {projectMetrics} />

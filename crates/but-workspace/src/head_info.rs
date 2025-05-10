@@ -2,19 +2,24 @@
 #[derive(Debug, Copy, Clone)]
 pub struct Options {
     /// The maximum amount of commits to list *per stack*. Note that a [`StackSegment`](crate::branch::StackSegment) will always have a single commit, if available,
-    ///  even if this would exhaust the commit limit in that stack.
+    ///  even if this exhausts the commit limit in that stack.
     /// `0` means the limit is disabled.
     ///
-    ///  NOTE: Currently, to fetch more commits, make this call again with a higher limit.
+    /// NOTE: Currently, to fetch more commits, make this call again with a higher limit.
+    /// Additionally, this is only effective if there is an open-ended graph, for example, when `HEAD` points to `main` with
+    /// a lot of commits without a discernible base.
+    ///
+    /// Callers can check for the limit by looking as the oldest commit - if it has no parents, then the limit wasn't hit, or if it is
+    /// connected to a merge-base.
     pub stack_commit_limit: usize,
 }
 pub(crate) mod function {
     use crate::HeadInfo;
     use crate::branch::{RefLocation, Stack, StackSegment};
-    use bstr::ByteSlice;
     use but_core::ref_metadata::ValueInfo;
     use gix::prelude::ReferenceExt;
     use gix::revision::walk::Sorting;
+    use tracing::instrument;
 
     /// Gather information about the current `HEAD` and the workspace that might be associated with it, based on data in `repo` and `meta`.
     ///
@@ -23,6 +28,7 @@ pub(crate) mod function {
     /// ### Performance
     ///
     /// Make sure the `repo` is initialized with a decently sized Object cache so querying the same commit multiple times will be cheap(er).
+    #[instrument(level = tracing::Level::DEBUG, skip(repo, meta), err(Debug))]
     pub fn head_info(
         repo: &gix::Repository,
         meta: &impl but_core::RefMetadata,
@@ -218,7 +224,7 @@ pub(crate) mod function {
     }
 
     // Fetch non-default workspace information, but only if reference at `name` seems to be a workspace reference.
-    fn workspace_data_of_workspace_branch(
+    pub fn workspace_data_of_workspace_branch(
         meta: &impl but_core::RefMetadata,
         name: &gix::refs::FullNameRef,
     ) -> anyhow::Result<Option<but_core::ref_metadata::Workspace>> {
@@ -234,7 +240,19 @@ pub(crate) mod function {
         })
     }
 
+    /// Like [`workspace_data_of_workspace_branch()`], but it will try the name of the default GitButler workspace branch.
+    pub fn workspace_data_of_default_workspace_branch(
+        meta: &impl but_core::RefMetadata,
+    ) -> anyhow::Result<Option<but_core::ref_metadata::Workspace>> {
+        workspace_data_of_workspace_branch(
+            meta,
+            "refs/heads/gitbutler/workspace"
+                .try_into()
+                .expect("statically known"),
+        )
+    }
+
     fn is_gitbutler_workspace_ref(name: &gix::refs::FullNameRef) -> bool {
-        name.shorten().starts_with_str("gitbutler/workspace/")
+        name.as_bstr() == "refs/heads/gitbutler/workspace"
     }
 }

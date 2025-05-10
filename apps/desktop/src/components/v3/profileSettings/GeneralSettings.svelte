@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import Login from '$components/Login.svelte';
 	import WelcomeSigninAction from '$components/WelcomeSigninAction.svelte';
 	import { SettingsService } from '$lib/config/appSettingsV2';
@@ -14,7 +15,6 @@
 	import Toggle from '@gitbutler/ui/Toggle.svelte';
 	import * as toasts from '@gitbutler/ui/toasts';
 	import type { User } from '$lib/user/user';
-	import { goto } from '$app/navigation';
 
 	const userService = getContext(UserService);
 	const settingsService = getContext(SettingsService);
@@ -40,8 +40,8 @@
 			userService.getUser().then((cloudUser) => {
 				const userData: User = {
 					...cloudUser,
-					name: cloudUser.name || 'unkown',
-					email: cloudUser.email || 'unkown@example.com',
+					name: cloudUser.name || 'unknown',
+					email: cloudUser.email || 'unknown@example.com',
 					login: cloudUser.login || undefined,
 					picture: cloudUser.picture || '#',
 					locale: cloudUser.locale || 'en',

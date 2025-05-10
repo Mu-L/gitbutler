@@ -1,15 +1,16 @@
 <script lang="ts">
 	import BranchLabel from '$components/BranchLabel.svelte';
-	import BranchRenameModal from '$components/BranchRenameModal.svelte';
-	import DeleteBranchModal from '$components/DeleteBranchModal.svelte';
+	import CardOverlay from '$components/CardOverlay.svelte';
+	import Dropzone from '$components/Dropzone.svelte';
 	import BranchBadge from '$components/v3/BranchBadge.svelte';
+	import BranchHeaderContextMenu from '$components/v3/BranchHeaderContextMenu.svelte';
 	import BranchHeaderIcon from '$components/v3/BranchHeaderIcon.svelte';
-	import ContextMenu from '$components/v3/ContextMenu.svelte';
+	import { MoveCommitDzHandler, StartCommitDzHandler } from '$lib/commits/dropHandler';
+	import { ChangeSelectionService } from '$lib/selection/changeSelection.svelte';
 	import { StackService } from '$lib/stacks/stackService.svelte';
 	import { UiState } from '$lib/state/uiState.svelte';
 	import { TestId } from '$lib/testing/testIds';
 	import { inject } from '@gitbutler/shared/context';
-	import Icon from '@gitbutler/ui/Icon.svelte';
 	import ReviewBadge from '@gitbutler/ui/ReviewBadge.svelte';
 	import { getTimeAgo } from '@gitbutler/ui/utils/timeAgo';
 	import { slide } from 'svelte/transition';
@@ -19,20 +20,22 @@
 
 	export type Props = {
 		type: 'draft-branch' | 'normal-branch' | 'stack-branch';
-		el?: HTMLElement;
 		projectId: string;
 		branchName: string;
 		readonly: boolean;
 		iconName: keyof typeof iconsJson;
 		lineColor: string;
-		menuBtnEl?: HTMLButtonElement;
 		isCommitting?: boolean;
+		activated?: boolean;
 	} & (
 		| { type: 'draft-branch' }
 		| {
 				type: 'normal-branch';
+				selected: boolean;
 				trackingBranch?: string;
 				lastUpdatedAt?: number;
+				isTopBranch?: boolean;
+				isNewBranch?: boolean;
 				onclick: () => void;
 		  }
 		| {
@@ -48,13 +51,12 @@
 				lastUpdatedAt?: number;
 				isCommitting: boolean;
 				isConflicted: boolean;
+				contextMenu?: typeof BranchHeaderContextMenu;
 				onclick: () => void;
 				menu?: Snippet<
 					[
 						{
-							onToggle: (open: boolean, isLeftClick: boolean) => void;
-							showBranchRenameModal: () => void;
-							showDeleteBranchModal: () => void;
+							rightClickTrigger: HTMLElement;
 						}
 					]
 				>;
@@ -62,40 +64,27 @@
 	);
 
 	let {
-		el = $bindable(),
 		projectId,
 		branchName,
 		readonly,
 		iconName,
 		lineColor,
 		isCommitting,
-		menuBtnEl = $bindable(),
+		activated,
 		...args
 	}: Props = $props();
 
-	const [stackService, uiState] = inject(StackService, UiState);
+	const [stackService, uiState, changeSelectionService] = inject(
+		StackService,
+		UiState,
+		ChangeSelectionService
+	);
 
 	const [updateName, nameUpdate] = stackService.updateBranchName;
 
 	const isPushed = $derived(!!(args.type === 'draft-branch' ? undefined : args.trackingBranch));
 
-	let contextMenu = $state<ContextMenu>();
 	let rightClickTrigger = $state<HTMLDivElement>();
-	let leftClickTrigger = $state<HTMLButtonElement>();
-
-	let isMenuOpenByBtn = $state(false);
-	let isMenuOpenByMouse = $state(false);
-
-	let renameBranchModal = $state<BranchRenameModal>();
-	let deleteBranchModal = $state<DeleteBranchModal>();
-
-	function showBranchRenameModal() {
-		renameBranchModal?.show();
-	}
-
-	function showDeleteBranchModal() {
-		deleteBranchModal?.show();
-	}
 
 	async function updateBranchName(title: string) {
 		if (args.type === 'draft-branch') {
@@ -113,181 +102,147 @@
 			});
 		}
 	}
-
-	function onToggle(isOpen: boolean, isLeftClick: boolean) {
-		if (isLeftClick) {
-			isMenuOpenByBtn = isOpen;
-		} else {
-			isMenuOpenByMouse = isLeftClick;
-		}
-	}
 </script>
 
 {#if args.type === 'stack-branch'}
+	{@const moveHandler = new MoveCommitDzHandler(stackService, args.stackId, projectId)}
+	{@const startCommitHandler = new StartCommitDzHandler({
+		uiState,
+		changeSelectionService,
+		stackId: args.stackId,
+		projectId,
+		branchName
+	})}
+	<Dropzone handlers={[moveHandler, startCommitHandler]}>
+		{#snippet overlay({ hovered, activated, handler })}
+			{@const label = handler instanceof MoveCommitDzHandler ? 'Move here' : 'Start commit'}
+			<CardOverlay {hovered} {activated} {label} />
+		{/snippet}
+		<div
+			data-testid={TestId.BranchHeader}
+			data-testid-branch-header={branchName}
+			bind:this={rightClickTrigger}
+			role="button"
+			class="branch-header"
+			class:new-branch={args.isNewBranch}
+			class:is-committing={isCommitting}
+			class:selected={args.selected}
+			onclick={args.onclick}
+			onkeypress={args.onclick}
+			tabindex="0"
+			class:activated
+		>
+			{#if args.selected}
+				<div class="branch-header__select-indicator" in:slide={{ axis: 'x', duration: 150 }}></div>
+			{/if}
+
+			<BranchHeaderIcon
+				{lineColor}
+				{iconName}
+				lineTop={args.isTopBranch ? false : true}
+				isDashed={args.isNewBranch}
+			/>
+			<div class="branch-header__content">
+				<div class="name-line text-14 text-bold">
+					<BranchLabel
+						name={branchName}
+						fontSize="15"
+						disabled={nameUpdate.current.isLoading}
+						readonly={readonly || isPushed}
+						onChange={(name) => updateBranchName(name)}
+					/>
+
+					{#if args.menu}
+						{@render args.menu({ rightClickTrigger })}
+					{/if}
+				</div>
+
+				{#if args.isNewBranch}
+					<p class="text-12 text-body branch-header__empty-state">
+						<span>This is an empty branch.</span> <span>Click for details.</span>
+						<br />
+						Create or drag & drop commits here.
+					</p>
+				{:else}
+					<div class="text-12 branch-header__details">
+						<span class="branch-header__item">
+							<BranchBadge pushStatus={args.pushStatus} unstyled />
+						</span>
+						<span class="branch-header__divider">•</span>
+
+						{#if args.isConflicted}
+							<span class="branch-header__item branch-header__item--conflict"> Conflicts </span>
+							<span class="branch-header__divider">•</span>
+						{/if}
+
+						{#if args.lastUpdatedAt}
+							<span class="branch-header__item">
+								{getTimeAgo(new Date(args.lastUpdatedAt))}
+							</span>
+						{/if}
+
+						{#if args.reviewId || args.prNumber}
+							<span class="branch-header__divider">•</span>
+							<div class="branch-header__review-badges">
+								{#if args.reviewId}
+									<ReviewBadge brId={args.reviewId} brStatus="unknown" />
+								{/if}
+								{#if args.prNumber}
+									<ReviewBadge prNumber={args.prNumber} prStatus="unknown" />
+								{/if}
+							</div>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		</div>
+	</Dropzone>
+{:else if args.type === 'normal-branch'}
 	<div
 		data-testid={TestId.BranchHeader}
-		bind:this={el}
+		bind:this={rightClickTrigger}
 		role="button"
 		class="branch-header"
-		class:new-branch={args.isNewBranch}
-		class:is-committing={isCommitting}
 		class:selected={args.selected}
+		class:new-branch={args.isNewBranch}
 		onclick={args.onclick}
-		oncontextmenu={(e) => {
-			e.stopPropagation();
-			e.preventDefault();
-			contextMenu?.toggle(e);
-		}}
 		onkeypress={args.onclick}
 		tabindex="0"
-		class:activated={isMenuOpenByMouse || isMenuOpenByBtn}
 	>
 		{#if args.selected}
 			<div class="branch-header__select-indicator" in:slide={{ axis: 'x', duration: 150 }}></div>
 		{/if}
 
-		<BranchHeaderIcon
-			{lineColor}
-			{iconName}
-			lineTop={args.isTopBranch ? false : true}
-			isDashed={args.isNewBranch}
-		/>
+		<BranchHeaderIcon {lineColor} {iconName} lineTop={!args.isTopBranch} />
 		<div class="branch-header__content">
 			<div class="name-line text-14 text-bold">
-				<BranchLabel
-					name={branchName}
-					fontSize="15"
-					disabled={nameUpdate.current.isLoading}
-					readonly={readonly || isPushed}
-					onChange={(name) => updateBranchName(name)}
-					onDblClick={() => {
-						if (isPushed) {
-							renameBranchModal?.show();
-						}
-					}}
-				/>
-
-				<button
-					bind:this={menuBtnEl}
-					type="button"
-					class="branch-menu-btn"
-					class:activated={isMenuOpenByBtn}
-					onmousedown={(e) => {
-						e.stopPropagation();
-						e.preventDefault();
-						contextMenu?.toggle();
-					}}
-					onclick={(e) => {
-						e.stopPropagation();
-						e.preventDefault();
-					}}
-				>
-					<Icon name="kebab" />
-				</button>
+				<BranchLabel name={branchName} fontSize="15" readonly={true} />
 			</div>
 
 			{#if args.isNewBranch}
 				<p class="text-12 text-body branch-header__empty-state">
-					<span>This is an empty branch.</span> <span>Click for details.</span>
-					<br />
-					Create or drag & drop commits here.
+					<span>There are no commits yet on this branch.</span>
 				</p>
 			{:else}
-				<div class="text-11 branch-header__details">
-					<span class="branch-header__item">
-						<BranchBadge pushStatus={args.pushStatus} unstyled />
-					</span>
-					<span class="branch-header__divider">•</span>
-
-					{#if args.isConflicted}
-						<span class="branch-header__item branch-header__item--conflict"> Has conflicts </span>
-						<span class="branch-header__divider">•</span>
-					{/if}
-
+				<div class="text-12 branch-header__details">
 					{#if args.lastUpdatedAt}
 						<span class="branch-header__item">
 							{getTimeAgo(new Date(args.lastUpdatedAt))}
 						</span>
 					{/if}
-
-					{#if args.reviewId || args.prNumber}
-						<span class="branch-header__divider">•</span>
-						<div class="branch-header__review-badges">
-							{#if args.reviewId}
-								<ReviewBadge brId={args.reviewId} brStatus="unknown" />
-							{/if}
-							{#if args.prNumber}
-								<ReviewBadge prNumber={args.prNumber} prStatus="unknown" />
-							{/if}
-						</div>
-					{/if}
 				</div>
-			{/if}
-		</div>
-	</div>
-	<ContextMenu
-		testId={TestId.BranchHeaderContextMenu}
-		bind:this={contextMenu}
-		{leftClickTrigger}
-		{rightClickTrigger}
-		ontoggle={(isOpen, isLeftClick) => {
-			onToggle?.(isOpen, isLeftClick);
-		}}
-	>
-		{@render args.menu?.({
-			onToggle,
-			showBranchRenameModal,
-			showDeleteBranchModal
-		})}
-	</ContextMenu>
-	<BranchRenameModal
-		{projectId}
-		stackId={args.stackId}
-		{branchName}
-		bind:this={renameBranchModal}
-		isPushed={!!args.trackingBranch}
-	/>
-	<DeleteBranchModal
-		{projectId}
-		stackId={args.stackId}
-		{branchName}
-		bind:this={deleteBranchModal}
-	/>
-{:else if args.type === 'normal-branch'}
-	<div
-		data-testid={TestId.BranchHeader}
-		bind:this={el}
-		role="button"
-		class="branch-header selected"
-		onclick={args.onclick}
-		onkeypress={args.onclick}
-		tabindex="0"
-	>
-		<div class="branch-header__select-indicator" in:slide={{ axis: 'x', duration: 150 }}></div>
-
-		<BranchHeaderIcon {lineColor} {iconName} lineTop={false} />
-		<div class="branch-header__content">
-			<div class="name-line text-14 text-bold">
-				<BranchLabel name={branchName} fontSize="15" readonly={true} />
-			</div>
-		</div>
-		<div class="text-11 branch-header__details">
-			{#if args.lastUpdatedAt}
-				<span class="branch-header__item">
-					{getTimeAgo(new Date(args.lastUpdatedAt))}
-				</span>
 			{/if}
 		</div>
 	</div>
 {:else}
 	<div
 		data-testid={TestId.BranchHeader}
-		bind:this={el}
+		bind:this={rightClickTrigger}
 		role="button"
 		class="branch-header new-branch draft selected"
 		tabindex="0"
 	>
-		<BranchHeaderIcon {lineColor} {iconName} isDashed lineTop={false} />
+		<BranchHeaderIcon {lineColor} {iconName} isDashed lineTop />
 		<div class="branch-header__content">
 			<div class="name-line text-14 text-bold">
 				<BranchLabel
@@ -321,14 +276,6 @@
 		overflow: hidden;
 		background-color: var(--branch-selected-bg);
 
-		/* show menu button on hover or if selected */
-		&:hover,
-		&.selected {
-			& .branch-menu-btn {
-				display: flex; /* show menu button on hover */
-			}
-		}
-
 		/* Selected but NOT in focus */
 		&:hover,
 		&.activated {
@@ -353,6 +300,15 @@
 		&.is-committing {
 			border-radius: var(--radius-ml) var(--radius-ml) 0 0;
 		}
+	}
+
+	.branch-header__details {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 6px;
+		color: var(--clr-text-2);
+		margin-left: 4px;
 	}
 
 	.branch-header__select-indicator {
@@ -384,22 +340,6 @@
 		padding: 14px 0;
 		margin-left: -2px;
 		text-overflow: ellipsis;
-	}
-
-	.branch-menu-btn {
-		display: none;
-		padding: 0 4px;
-		color: var(--clr-text-1);
-		opacity: 0.5;
-
-		&:hover {
-			opacity: 1;
-		}
-
-		&.activated {
-			display: flex;
-			opacity: 1;
-		}
 	}
 
 	.branch-header__empty-state {

@@ -1,4 +1,4 @@
-use crate::commit_engine::{HunkHeader, HunkRange};
+use crate::{HunkHeader, commit_engine::HunkRange};
 use anyhow::Context;
 use bstr::{BStr, BString, ByteSlice};
 use but_core::unified_diff::DiffHunk;
@@ -80,6 +80,11 @@ impl HunkHeader {
             start: self.new_start,
             lines: self.new_lines,
         }
+    }
+
+    /// Return `true` if this hunk is fully contained in the other hunk.
+    pub fn contains(self, other: HunkHeader) -> bool {
+        self.old_range().contains(other.old_range()) && self.new_range().contains(other.new_range())
     }
 }
 

@@ -6,7 +6,7 @@ use but_hunk_dependency::ui::{
 };
 use but_settings::AppSettingsWithDiskSync;
 use but_workspace::commit_engine::StackSegmentId;
-use but_workspace::{commit_engine, StackEntry};
+use but_workspace::{commit_engine, ui::StackEntry};
 use gitbutler_branch_actions::BranchManagerExt;
 use gitbutler_command_context::CommandContext;
 use gitbutler_oplog::entry::{OperationKind, SnapshotDetails};
@@ -39,16 +39,28 @@ pub fn stack_details(
     settings: State<'_, AppSettingsWithDiskSync>,
     project_id: ProjectId,
     stack_id: StackId,
-) -> Result<but_workspace::StackDetails, Error> {
+) -> Result<but_workspace::ui::StackDetails, Error> {
     let project = projects.get(project_id)?;
     let ctx = CommandContext::open(&project, settings.get()?.clone())?;
     but_workspace::stack_details(&project.gb_dir(), stack_id, &ctx).map_err(Into::into)
 }
 
+#[tauri::command(async)]
+#[instrument(skip(projects, settings), err(Debug))]
+pub fn branch_details(
+    projects: State<'_, projects::Controller>,
+    settings: State<'_, AppSettingsWithDiskSync>,
+    project_id: ProjectId,
+    branch_name: &str,
+    remote: Option<&str>,
+) -> Result<but_workspace::ui::BranchDetails, Error> {
+    let project = projects.get(project_id)?;
+    let ctx = CommandContext::open(&project, settings.get()?.clone())?;
+    but_workspace::branch_details(&project.gb_dir(), branch_name, remote, &ctx).map_err(Into::into)
+}
+
 /// Retrieve all changes in the workspace and associate them with commits in the Workspace of `project_id`.
 /// NOTE: right now there is no way to keep track of unassociated hunks.
-// TODO: This probably has to change a lot once it's clear how the UI is going to use it.
-//       Right now this is only a port from the V2 UI, and that data structure was never used directly.
 #[tauri::command(async)]
 #[instrument(skip(projects, settings), err(Debug))]
 pub fn hunk_dependencies_for_workspace_changes(
@@ -73,7 +85,7 @@ pub fn hunk_dependencies_for_workspace_changes(
 /// Note that submodules *must* be provided as diffspec without hunks, as attempting to generate
 /// hunks would fail.
 /// `stack_branch_name` is the short name of the reference that the UI knows is present in a given segment.
-/// It is needed to insert the new commit into the right bucket.
+/// It is necessary to insert the new commit into the right bucket.
 #[tauri::command(async)]
 #[instrument(skip(projects, settings), err(Debug))]
 #[allow(clippy::too_many_arguments)]
@@ -83,12 +95,12 @@ pub fn create_commit_from_worktree_changes(
     project_id: ProjectId,
     stack_id: StackId,
     parent_id: Option<HexHash>,
-    worktree_changes: Vec<commit_engine::ui::DiffSpec>,
+    worktree_changes: Vec<but_workspace::DiffSpec>,
     message: String,
     stack_branch_name: String,
 ) -> Result<commit_engine::ui::CreateCommitOutcome, Error> {
     let project = projects.get(project_id)?;
-    let repo = but_core::open_repo_for_merging(&project.worktree_path())?;
+    let repo = but_core::open_repo_for_merging(project.worktree_path())?;
     // If parent_id was not set but a stack branch name was provided, pick the current head of that branch as parent.
     let parent_commit_id: Option<gix::ObjectId> = match parent_id {
         Some(id) => Some(id.into()),
@@ -121,14 +133,10 @@ pub fn create_commit_from_worktree_changes(
             }),
         },
         None,
-        worktree_changes.into_iter().map(Into::into).collect(),
+        worktree_changes,
         settings.get()?.context_lines,
         guard.write_permission(),
     );
-
-    let vb_state = VirtualBranchesHandle::new(project.gb_dir());
-    gitbutler_branch_actions::update_workspace_commit(&vb_state, &ctx)
-        .context("failed to update gitbutler workspace")?;
 
     let _ = snapshot_tree.and_then(|snapshot_tree| {
         ctx.snapshot_commit_creation(
@@ -160,18 +168,22 @@ pub fn amend_commit_from_worktree_changes(
     project_id: ProjectId,
     stack_id: StackId,
     commit_id: HexHash,
-    worktree_changes: Vec<commit_engine::ui::DiffSpec>,
+    worktree_changes: Vec<but_workspace::DiffSpec>,
 ) -> Result<commit_engine::ui::CreateCommitOutcome, Error> {
     let project = projects.get(project_id)?;
     let mut guard = project.exclusive_worktree_access();
-    let repo = but_core::open_repo_for_merging(&project.worktree_path())?;
+    let repo = but_core::open_repo_for_merging(project.worktree_path())?;
     let outcome = commit_engine::create_commit_and_update_refs_with_project(
         &repo,
         &project,
         Some(stack_id),
-        commit_engine::Destination::AmendCommit(commit_id.into()),
+        commit_engine::Destination::AmendCommit {
+            commit_id: commit_id.into(),
+            // TODO: Expose this in the UI for 'edit message' functionality.
+            new_message: None,
+        },
         None,
-        worktree_changes.into_iter().map(Into::into).collect(),
+        worktree_changes,
         settings.get()?.context_lines,
         guard.write_permission(),
     )?;
@@ -192,10 +204,10 @@ pub fn discard_worktree_changes(
     projects: State<'_, projects::Controller>,
     settings: State<'_, AppSettingsWithDiskSync>,
     project_id: ProjectId,
-    worktree_changes: Vec<but_workspace::discard::ui::DiscardSpec>,
-) -> Result<Vec<but_workspace::discard::ui::DiscardSpec>, Error> {
+    worktree_changes: Vec<but_workspace::DiffSpec>,
+) -> Result<Vec<but_workspace::DiffSpec>, Error> {
     let project = projects.get(project_id)?;
-    let repo = but_core::open_repo(&project.worktree_path())?;
+    let repo = but_core::open_repo(project.worktree_path())?;
     let ctx = CommandContext::open(&project, settings.get()?.clone())?;
     let mut guard = project.exclusive_worktree_access();
 
@@ -205,20 +217,13 @@ pub fn discard_worktree_changes(
     );
     let refused = but_workspace::discard_workspace_changes(
         &repo,
-        worktree_changes.into_iter().map(|change| {
-            but_workspace::discard::DiscardSpec::from(but_workspace::commit_engine::DiffSpec::from(
-                change,
-            ))
-        }),
+        worktree_changes,
         settings.get()?.context_lines,
     )?;
     if !refused.is_empty() {
         tracing::warn!(?refused, "Failed to discard at least one hunk");
     }
-    Ok(refused
-        .into_iter()
-        .map(|change| commit_engine::DiffSpec::from(change).into())
-        .collect())
+    Ok(refused)
 }
 
 /// This API allows the user to quickly "stash" a bunch of uncommitted changes - getting them out of the worktree.
@@ -232,7 +237,7 @@ pub fn stash_into_branch(
     settings: State<'_, AppSettingsWithDiskSync>,
     project_id: ProjectId,
     branch_name: String,
-    worktree_changes: Vec<commit_engine::ui::DiffSpec>,
+    worktree_changes: Vec<but_workspace::DiffSpec>,
 ) -> Result<commit_engine::ui::CreateCommitOutcome, Error> {
     let project = projects.get(project_id)?;
     let ctx = CommandContext::open(&project, settings.get()?.clone())?;
@@ -252,7 +257,7 @@ pub fn stash_into_branch(
         perm,
     )?;
 
-    let parent_commit_id = stack.head(&repo)?;
+    let parent_commit_id = stack.head_oid(&repo)?;
     let branch_name = stack.derived_name()?;
 
     let outcome = commit_engine::create_commit_and_update_refs_with_project(
@@ -270,7 +275,7 @@ pub fn stash_into_branch(
             }),
         },
         None,
-        worktree_changes.into_iter().map(Into::into).collect(),
+        worktree_changes,
         settings.get()?.context_lines,
         perm,
     );
@@ -310,7 +315,7 @@ pub fn target_commits(
     project_id: ProjectId,
     last_commit_id: Option<HexHash>,
     page_size: Option<usize>,
-) -> Result<Vec<but_workspace::Commit>, Error> {
+) -> Result<Vec<but_workspace::ui::Commit>, Error> {
     let project = projects.get(project_id)?;
     let ctx = CommandContext::open(&project, settings.get()?.clone())?;
     but_workspace::log_target_first_parent(

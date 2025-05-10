@@ -1,33 +1,27 @@
 <script lang="ts">
-	import { UiState } from '$lib/state/uiState.svelte';
+	import SidebarEntry from '$components/v3/SidebarEntry.svelte';
 	import { UserService } from '$lib/user/userService';
 	import { parseDate } from '$lib/utils/time';
 	import { inject } from '@gitbutler/shared/context';
-	import SidebarEntry from '@gitbutler/ui/SidebarEntry.svelte';
 	import type { PullRequest } from '$lib/forge/interface/types';
 
 	interface Props {
 		projectId: string;
 		pullRequest: PullRequest;
+		selected: boolean;
+		onclick: (listing: PullRequest) => void;
 	}
 
-	const { projectId, pullRequest }: Props = $props();
+	const { pullRequest, selected, onclick }: Props = $props();
 
-	const [userService, uiState] = inject(UserService, UiState);
+	const [userService] = inject(UserService);
 	const user = userService.user;
-	const explorerState = $derived(uiState.project(projectId).branchesSelection);
 
 	const authorImgUrl = $derived.by(() => {
 		return pullRequest.author?.email?.toLowerCase() === $user?.email?.toLowerCase()
 			? $user?.picture
 			: pullRequest.author?.gravatarUrl;
 	});
-
-	function onMouseDown() {
-		explorerState.set({ prNumber: String(pullRequest.number) });
-	}
-
-	const selected = $derived(explorerState.current.prNumber === String(pullRequest.number));
 </script>
 
 <SidebarEntry
@@ -43,7 +37,7 @@
 		title: pullRequest.title,
 		draft: pullRequest.draft
 	}}
-	{onMouseDown}
+	onclick={() => onclick(pullRequest)}
 	{selected}
 	avatars={[
 		{

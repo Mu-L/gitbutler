@@ -5,15 +5,14 @@
 	import { lineIdsToHunkHeaders, type DiffHunk, type HunkHeader } from '$lib/hunks/hunk';
 	import { showError, showToast } from '$lib/notifications/toasts';
 	import { ChangeSelectionService, type SelectedHunk } from '$lib/selection/changeSelection.svelte';
-	import { IdSelection } from '$lib/selection/idSelection.svelte';
 	import {
 		StackService,
 		type CreateCommitRequestWorktreeChanges
 	} from '$lib/stacks/stackService.svelte';
 	import { UiState } from '$lib/state/uiState.svelte';
+	import { TestId } from '$lib/testing/testIds';
 	import { WorktreeService } from '$lib/worktree/worktreeService.svelte';
 	import { getContext, inject } from '@gitbutler/shared/context';
-	import { isDefined } from '@gitbutler/ui/utils/typeguards';
 
 	type Props = {
 		projectId: string;
@@ -22,49 +21,44 @@
 	const { projectId, stackId }: Props = $props();
 
 	const stackService = getContext(StackService);
-	const [uiState, idSelection, worktreeService, diffService] = inject(
-		UiState,
-		IdSelection,
-		WorktreeService,
-		DiffService
-	);
+	const [uiState, worktreeService, diffService] = inject(UiState, WorktreeService, DiffService);
 	const changeSelection = getContext(ChangeSelectionService);
 
 	const [createCommitInStack, commitCreation] = stackService.createCommit;
 
 	const stackState = $derived(stackId ? uiState.stack(stackId) : undefined);
-	const selected = $derived(stackState?.selection.get());
-	const selectedBranchName = $derived(selected?.current?.branchName);
-	const selectedCommitId = $derived(selected?.current?.commitId);
+	const selection = $derived(stackState?.selection.current);
+	const selectedCommitId = $derived(selection?.commitId);
 
-	const selection = $derived(changeSelection.list());
-	const selectedPaths = $derived(selection.current.map((item) => item.path));
-	const selectedTreeChangesResponse = $derived(
-		worktreeService.getChangesById(projectId, selectedPaths)
-	);
-	const selectedTreeChanges = $derived(selectedTreeChangesResponse.current.data);
-	const selectedChangesResponse = $derived(
-		selectedTreeChanges ? diffService.getChanges(projectId, selectedTreeChanges) : undefined
-	);
-	const changeDiffs = $derived(
-		selectedChangesResponse?.current.map((item) => item.data).filter(isDefined) ?? []
-	);
+	const selectedChanges = $derived(changeSelection.list());
+	const topBranchResult = $derived(stackId ? stackService.branches(projectId, stackId) : undefined);
+	const topBranchName = $derived(topBranchResult?.current.data?.at(0)?.name);
 
 	const draftBranchName = $derived(uiState.global.draftBranchName.current);
+
+	const selectedBranchName = $derived(selection?.branchName || topBranchName);
 	const canCommit = $derived(
-		(selectedBranchName || draftBranchName) && selection.current.length > 0
+		(selectedBranchName || draftBranchName || topBranchName) && selectedChanges.current.length > 0
 	);
 	const projectState = $derived(uiState.project(projectId));
 
 	let input = $state<ReturnType<typeof CommitMessageEditor>>();
 	let drawer = $state<ReturnType<typeof Drawer>>();
 
-	function findHunkDiff(filePath: string, hunk: SelectedHunk): DiffHunk | undefined {
-		const file = changeDiffs.find((file) => file.path === filePath);
-		if (!file) return undefined;
-		if (file.diff.type !== 'Patch') return undefined;
+	async function findHunkDiff(filePath: string, hunk: SelectedHunk): Promise<DiffHunk | undefined> {
+		const treeChange = await worktreeService.fetchChange(projectId, filePath);
+		if (treeChange.data === undefined) {
+			throw new Error('Failed to fetch change');
+		}
+		const changeDiff = await diffService.fetchDiff(projectId, treeChange.data);
+		if (changeDiff.data === undefined) {
+			throw new Error('Failed to fetch diff');
+		}
+		const file = changeDiff.data;
 
-		const hunkDiff = file.diff.subject.hunks.find(
+		if (file.type !== 'Patch') return undefined;
+
+		const hunkDiff = file.subject.hunks.find(
 			(hunkDiff) =>
 				hunkDiff.oldStart === hunk.oldStart &&
 				hunkDiff.oldLines === hunk.oldLines &&
@@ -76,7 +70,7 @@
 
 	async function createCommit(message: string) {
 		let finalStackId = stackId;
-		let finalBranchName = selectedBranchName;
+		let finalBranchName = selectedBranchName || topBranchName;
 
 		if (!stackId) {
 			const stack = await createNewStack({
@@ -84,7 +78,9 @@
 				branch: { name: draftBranchName }
 			});
 			finalStackId = stack.id;
-			finalBranchName = stack.branchNames[0];
+			projectState.stackId.set(finalStackId);
+			finalBranchName = stack.heads[0]?.name; // Updated to access the name property
+			uiState.global.draftBranchName.set(undefined);
 		}
 
 		if (!finalStackId) {
@@ -95,16 +91,13 @@
 			throw new Error('No branch selected!');
 		}
 
-		if (!selectedTreeChanges) {
-			throw new Error('No changes selected!');
-		}
-
 		const worktreeChanges: CreateCommitRequestWorktreeChanges[] = [];
 
-		for (const item of selection.current) {
+		for (const item of selectedChanges.current) {
 			if (item.type === 'full') {
 				worktreeChanges.push({
 					pathBytes: item.pathBytes,
+					previousPathBytes: item.previousPathBytes,
 					hunkHeaders: []
 				});
 				continue;
@@ -119,7 +112,7 @@
 					}
 
 					if (hunk.type === 'partial') {
-						const hunkDiff = findHunkDiff(item.path, hunk);
+						const hunkDiff = await findHunkDiff(item.path, hunk);
 						if (!hunkDiff) {
 							throw new Error('Hunk not found while commiting');
 						}
@@ -130,6 +123,7 @@
 				}
 				worktreeChanges.push({
 					pathBytes: item.pathBytes,
+					previousPathBytes: item.previousPathBytes,
 					hunkHeaders
 				});
 				continue;
@@ -147,17 +141,27 @@
 
 		const newId = response.newCommit;
 
+		// Clear saved state for commit message editor.
+		projectState.commitTitle.set('');
+		projectState.commitDescription.set('');
+
+		// Close the drawer.
+		projectState.drawerPage.set(undefined);
+
+		// Select the newly created commit.
+		// Using `finalStackId` here because `stackState` might not have updated yet.
+		uiState.stack(finalStackId).selection.set({ branchName: finalBranchName, commitId: newId });
+
+		// Clear change/hunk selection used for creating the commit.
+		changeSelection.clear();
+
 		if (response.pathsToRejectedChanges.length > 0) {
 			showError(
 				'Some changes were not committed',
-				`The following files were not committed becuase they are locked to another branch\n${response.pathsToRejectedChanges.join('\n')}`
+				'The following files were not committed becuase they are locked to another branch:\n' +
+					response.pathsToRejectedChanges.map(([_reason, path]) => path).join('\n')
 			);
 		}
-
-		uiState.project(projectId).drawerPage.set(undefined);
-		uiState.stack(finalStackId).selection.set({ branchName: finalBranchName, commitId: newId });
-		changeSelection.clear();
-		idSelection.clear({ type: 'worktree' });
 	}
 
 	const [createNewStack, newStackResult] = stackService.newStack;
@@ -173,9 +177,6 @@
 			await createCommit(message);
 		} catch (err: unknown) {
 			showError('Failed to commit', err);
-		} finally {
-			projectState.commitTitle.set('');
-			projectState.commitDescription.set('');
 		}
 	}
 
@@ -184,7 +185,15 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} {projectId} {stackId} title="Create commit" disableScroll minHeight={20}>
+<Drawer
+	testId={TestId.NewCommitDrawer}
+	bind:this={drawer}
+	{projectId}
+	{stackId}
+	title="Create commit"
+	disableScroll
+	minHeight={20}
+>
 	<CommitMessageEditor
 		bind:this={input}
 		{projectId}

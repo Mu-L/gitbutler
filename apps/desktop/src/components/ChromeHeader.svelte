@@ -1,13 +1,15 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import SyncButton from '$components/SyncButton.svelte';
 	import IntegrateUpstreamModal from '$components/v3/IntegrateUpstreamModal.svelte';
 	import BaseBranchService from '$lib/baseBranch/baseBranchService.svelte';
+	import { ircEnabled } from '$lib/config/uiFeatureFlags';
 	import { IrcService } from '$lib/irc/ircService.svelte';
 	import { platformName } from '$lib/platform/platform';
 	import { Project } from '$lib/project/project';
 	import { ProjectsService } from '$lib/project/projectsService';
 	import { ircPath, projectPath } from '$lib/routes/routes.svelte';
-	import * as events from '$lib/utils/events';
+	import { TestId } from '$lib/testing/testIds';
 	import { getContext, maybeGetContext } from '@gitbutler/shared/context';
 	import Button from '@gitbutler/ui/Button.svelte';
 	import Icon from '@gitbutler/ui/Icon.svelte';
@@ -15,7 +17,6 @@
 	import OptionsGroup from '@gitbutler/ui/select/OptionsGroup.svelte';
 	import Select from '@gitbutler/ui/select/Select.svelte';
 	import SelectItem from '@gitbutler/ui/select/SelectItem.svelte';
-	import { goto } from '$app/navigation';
 
 	type Props = {
 		projectId: string;
@@ -66,7 +67,11 @@
 		<div class="chrome-left-buttons" class:macos={platformName === 'macos'}>
 			<SyncButton {projectId} size="button" disabled={actionsDisabled} />
 			{#if upstreamCommits > 0}
-				<Button style="pop" onclick={openModal} disabled={!selectedProjectId || actionsDisabled}
+				<Button
+					testId={TestId.IntegrateUpstreamCommitsButton}
+					style="pop"
+					onclick={openModal}
+					disabled={!selectedProjectId || actionsDisabled}
 					>{upstreamCommits} upstream commits</Button
 				>
 			{/if}
@@ -131,13 +136,14 @@
 		</Select>
 	</div>
 	<div class="chrome-right" data-tauri-drag-region>
-		<Button kind="ghost" icon="timeline" onclick={() => events.emit('openHistory')} />
-		<NotificationButton
-			hasUnread={isNotificationsUnread}
-			onclick={() => {
-				goto(ircPath(projectId));
-			}}
-		/>
+		{#if $ircEnabled}
+			<NotificationButton
+				hasUnread={isNotificationsUnread}
+				onclick={() => {
+					goto(ircPath(projectId));
+				}}
+			/>
+		{/if}
 	</div>
 </div>
 

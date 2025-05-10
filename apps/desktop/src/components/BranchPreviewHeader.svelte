@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import BaseBranchService from '$lib/baseBranch/baseBranchService.svelte';
 	import { BranchService } from '$lib/branches/branchService.svelte';
 	import { DefaultForgeFactory } from '$lib/forge/forgeFactory.svelte';
@@ -15,7 +16,6 @@
 	import { error } from '@gitbutler/ui/toasts';
 	import type { BranchData } from '$lib/branches/branch';
 	import type { PullRequest } from '$lib/forge/interface/types';
-	import { goto } from '$app/navigation';
 
 	interface Props {
 		projectId: string;
@@ -190,7 +190,9 @@
 	}}
 >
 	{#snippet children(branch)}
-		Are you sure you want to delete <code class="code-string">{branch.name}</code>?
+		<p class="text-13 text-body">
+			Are you sure you want to delete <code class="code-string">{branch.name}</code>?
+		</p>
 	{/snippet}
 	{#snippet controls(close)}
 		<Button kind="outline" onclick={close}>Cancel</Button>

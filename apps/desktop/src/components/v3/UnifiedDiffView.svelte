@@ -1,13 +1,17 @@
 <script lang="ts">
 	import HunkContextMenu from '$components/v3/HunkContextMenu.svelte';
+	import LineLocksWarning from '$components/v3/LineLocksWarning.svelte';
 	import LineSelection from '$components/v3/unifiedDiffLineSelection.svelte';
 	import binarySvg from '$lib/assets/empty-state/binary.svg?raw';
 	import emptyFileSvg from '$lib/assets/empty-state/empty-file.svg?raw';
 	import tooLargeSvg from '$lib/assets/empty-state/too-large.svg?raw';
-	import { draggableElement } from '$lib/dragging/draggable';
-	import { ChangeDropData } from '$lib/dragging/draggables';
-	import { canBePartiallySelected, type DiffHunk } from '$lib/hunks/hunk';
+	import DependencyService from '$lib/dependencies/dependencyService.svelte';
+	import { draggableChips } from '$lib/dragging/draggable';
+	import { HunkDropDataV3 } from '$lib/dragging/draggables';
+	import { previousPathBytesFromTreeChange, type TreeChange } from '$lib/hunks/change';
+	import { canBePartiallySelected, getLineLocks, type DiffHunk } from '$lib/hunks/hunk';
 	import { Project } from '$lib/project/project';
+	import { isWorkspacePath } from '$lib/routes/routes.svelte';
 	import {
 		ChangeSelectionService,
 		type PartiallySelectedFile
@@ -15,11 +19,13 @@
 	import { IdSelection } from '$lib/selection/idSelection.svelte';
 	import { type SelectionId } from '$lib/selection/key';
 	import { SETTINGS, type Settings } from '$lib/settings/userSettings';
+	import { StackService } from '$lib/stacks/stackService.svelte';
 	import { UiState } from '$lib/state/uiState.svelte';
+	import { TestId } from '$lib/testing/testIds';
+	import { WorktreeService } from '$lib/worktree/worktreeService.svelte';
 	import { getContextStoreBySymbol, inject } from '@gitbutler/shared/context';
 	import EmptyStatePlaceholder from '@gitbutler/ui/EmptyStatePlaceholder.svelte';
 	import HunkDiff from '@gitbutler/ui/HunkDiff.svelte';
-	import type { TreeChange } from '$lib/hunks/change';
 	import type { UnifiedDiff } from '$lib/hunks/diff';
 	import type { LineId } from '@gitbutler/ui/utils/diffParsing';
 
@@ -32,26 +38,47 @@
 	};
 
 	const { projectId, selectable = false, change, diff, selectionId }: Props = $props();
-	const [project, uiState] = inject(Project, UiState);
+	const [project, uiState, stackService] = inject(Project, UiState, StackService);
 	let contextMenu = $state<ReturnType<typeof HunkContextMenu>>();
 	let viewport = $state<HTMLDivElement>();
 	const projectState = $derived(uiState.project(projectId));
 	const drawerPage = $derived(projectState.drawerPage.current);
-	const isCommiting = $derived(drawerPage === 'new-commit');
-	const readonly = $derived(selectionId.type !== 'worktree');
+	const stacks = $derived(stackService.stacks(projectId));
+	const hasMultipleStacks = $derived(stacks.current.data && stacks.current.data.length > 1);
 
-	const [changeSelection, idSelection, lineSelection] = inject(
+	const workspacesParams = $derived(isWorkspacePath());
+
+	// This is the stack ID that's being viewed. Not **necessarily** the stack ID associated with
+	// the change and diff in question.
+	const viewingStackId = $derived(workspacesParams?.stackId);
+	const isCommiting = $derived(drawerPage === 'new-commit');
+
+	const uncommittedChange = $derived(selectionId.type === 'worktree');
+	const readonly = $derived(!uncommittedChange);
+
+	const [changeSelection, idSelection, lineSelection, dependencyService, worktreeService] = inject(
 		ChangeSelectionService,
 		IdSelection,
-		LineSelection
+		LineSelection,
+		DependencyService,
+		WorktreeService
 	);
 
 	const changeSelectionResult = $derived(changeSelection.getById(change.path));
 	const selection = $derived(changeSelectionResult.current);
 	const pathData = $derived({
 		path: change.path,
-		pathBytes: change.pathBytes
+		pathBytes: change.pathBytes,
+		previousPathBytes: previousPathBytesFromTreeChange(change)
 	});
+
+	const changesTimestamp = $derived(worktreeService.getChangesTimeStamp(projectId));
+	const fileDependencies = $derived(
+		// For now, only show the file dependencies when commiting, and there are multiple stacks applied
+		changesTimestamp.current !== undefined && isCommiting && hasMultipleStacks
+			? dependencyService.fileDependencies(projectId, changesTimestamp.current, change.path)
+			: undefined
+	);
 
 	const userSettings = getContextStoreBySymbol<Settings>(SETTINGS);
 
@@ -75,7 +102,7 @@
 		}
 
 		if (select) {
-			changeSelection.add({
+			changeSelection.upsert({
 				type: 'partial',
 				...pathData,
 				hunks: [{ type: 'full', ...hunk }]
@@ -172,15 +199,22 @@
 	}
 </script>
 
-<div class="diff-section" bind:this={viewport}>
+<div data-testid={TestId.UnifiedDiffView} class="diff-section" bind:this={viewport}>
 	{#if diff.type === 'Patch'}
 		{#each diff.subject.hunks as hunk}
 			{@const [staged, stagedLines] = getStageState(hunk)}
+			{@const [fullyLocked, lineLocks] = getLineLocks(
+				viewingStackId,
+				hunk,
+				fileDependencies?.current.data?.dependencies ?? []
+			)}
 			<div
-				class="hunk-content no-select"
-				use:draggableElement={{
-					data: new ChangeDropData(change, idSelection, selectionId),
-					disabled: readonly
+				class="hunk-content"
+				use:draggableChips={{
+					label: hunk.diff.split('\n')[0],
+					data: new HunkDropDataV3(change, hunk, uncommittedChange),
+					disabled: readonly,
+					chipType: 'hunk'
 				}}
 			>
 				<HunkDiff
@@ -190,6 +224,7 @@
 					hunkStr={hunk.diff}
 					{staged}
 					{stagedLines}
+					{lineLocks}
 					diffLigatures={$userSettings.diffLigatures}
 					tabSize={$userSettings.tabSize}
 					wrapText={$userSettings.wrapText}
@@ -197,6 +232,7 @@
 					diffContrast={$userSettings.diffContrast}
 					inlineUnifiedDiffs={$userSettings.inlineUnifiedDiffs}
 					onLineClick={(p) => {
+						if (fullyLocked) return;
 						if (!canBePartiallySelected(diff.subject)) {
 							const select = selection === undefined;
 							updateStage(hunk, select, diff.subject.hunks);
@@ -205,6 +241,7 @@
 						lineSelection.toggleStageLines(selection, hunk, p, diff.subject.hunks);
 					}}
 					onChangeStage={(selected) => {
+						if (fullyLocked) return;
 						updateStage(hunk, selected, diff.subject.hunks);
 					}}
 					handleLineContextMenu={(params) => {
@@ -215,17 +252,12 @@
 							afterLineNumber: params.afterLineNumber
 						});
 					}}
-				/>
+				>
+					{#snippet lockWarning(locks)}
+						<LineLocksWarning {projectId} {locks} />
+					{/snippet}
+				</HunkDiff>
 			</div>
-			<HunkContextMenu
-				bind:this={contextMenu}
-				trigger={viewport}
-				projectPath={project.vscodePath}
-				{projectId}
-				{change}
-				{readonly}
-				unSelectHunk={(hunk) => unselectHunk(hunk, diff.subject.hunks)}
-			/>
 		{:else}
 			<div class="hunk-placehoder">
 				<EmptyStatePlaceholder image={emptyFileSvg} gap={12} topBottomPadding={34}>
@@ -235,6 +267,17 @@
 				</EmptyStatePlaceholder>
 			</div>
 		{/each}
+
+		<!-- The context menu should be outside the each block. -->
+		<HunkContextMenu
+			bind:this={contextMenu}
+			trigger={viewport}
+			projectPath={project.vscodePath}
+			{projectId}
+			{change}
+			{readonly}
+			unSelectHunk={(hunk) => unselectHunk(hunk, diff.subject.hunks)}
+		/>
 	{:else if diff.type === 'TooLarge'}
 		<div class="hunk-placehoder">
 			<EmptyStatePlaceholder image={tooLargeSvg} gap={12} topBottomPadding={34}>
@@ -267,5 +310,9 @@
 	.hunk-placehoder {
 		border: 1px solid var(--clr-border-3);
 		border-radius: var(--radius-m);
+	}
+
+	.hunk-content {
+		user-select: text;
 	}
 </style>

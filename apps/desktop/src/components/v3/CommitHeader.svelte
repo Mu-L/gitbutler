@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { TestId } from '$lib/testing/testIds';
 	import { splitMessage } from '$lib/utils/commitMessage';
+	import Tooltip from '@gitbutler/ui/Tooltip.svelte';
 
 	type Props = {
 		row?: boolean;
@@ -12,15 +14,13 @@
 	const title = $derived(splitMessage(commitMessage).title);
 </script>
 
-<h3 class="{className} commit-title" class:row>
-	{title}
-</h3>
+<Tooltip text={title}>
+	<h3 data-testid={TestId.CommitDrawerTitle} class="{className} commit-title" class:row>
+		{title}
+	</h3>
+</Tooltip>
 
 <style>
-	.commit-title {
-		flex-grow: 1;
-	}
-
 	.row {
 		text-align: left;
 		text-overflow: ellipsis;

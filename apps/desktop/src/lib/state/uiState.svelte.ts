@@ -28,15 +28,21 @@ type BranchesSelection = {
 	branchName?: string;
 	commitId?: string;
 	stackId?: string;
-	prNumber?: string;
+	remote?: string;
+	hasLocal?: boolean;
+	isTarget?: boolean;
+	inWorkspace?: boolean;
+	prNumber?: number;
 };
 
 export type ProjectUiState = {
 	drawerPage: DrawerPage;
 	drawerFullScreen: boolean;
+	stackId: string | undefined;
 	commitTitle: string;
 	commitDescription: string;
 	branchesSelection: BranchesSelection;
+	editingCommitMessage: boolean;
 };
 
 export type GlobalUiState = {
@@ -44,6 +50,7 @@ export type GlobalUiState = {
 	leftWidth: number;
 	stacksViewWidth: number;
 	drawerSplitViewWidth: number;
+	historySidebarWidth: number;
 	useRichText: boolean;
 	useRuler: boolean;
 	rulerCountValue: number;
@@ -58,7 +65,7 @@ export type GlobalUiState = {
  * Stateful properties for the UI, with redux backed fine-grained reactivity.
  */
 export class UiState {
-	private state = $state<EntityState<UiStateVariable, string>>(uiStateSlice.getInitialState());
+	private state = $state.raw<EntityState<UiStateVariable, string>>(uiStateSlice.getInitialState());
 
 	/** Properties scoped to a specific stack. */
 	readonly stack = this.buildScopedProps<StackState>({
@@ -71,15 +78,18 @@ export class UiState {
 		drawerFullScreen: false,
 		commitTitle: '',
 		commitDescription: '',
-		branchesSelection: {}
+		branchesSelection: {},
+		stackId: undefined,
+		editingCommitMessage: false
 	});
 
 	/** Properties that are globally scoped. */
 	readonly global = this.buildGlobalProps<GlobalUiState>({
 		drawerHeight: 20,
 		leftWidth: 17.5,
-		stacksViewWidth: 21.25,
+		stacksViewWidth: 23.75,
 		drawerSplitViewWidth: 20,
+		historySidebarWidth: 30,
 		useRichText: false,
 		useRuler: false,
 		rulerCountValue: 72,

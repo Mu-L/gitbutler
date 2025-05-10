@@ -16,6 +16,7 @@ import type { GitLabApi } from '$lib/state/clientState.svelte';
 import type { StartQueryActionCreatorOptions } from '@reduxjs/toolkit/query';
 
 export class GitLabPrService implements ForgePrService {
+	readonly unit = { name: 'Merge request', abbr: 'MR', symbol: '!' };
 	loading = writable(false);
 	private api: ReturnType<typeof injectEndpoints>;
 
@@ -37,8 +38,8 @@ export class GitLabPrService implements ForgePrService {
 
 		const request = async () => {
 			return await this.api.endpoints.createPr.mutate({
-				head: baseBranchName,
-				base: upstreamName,
+				head: upstreamName,
+				base: baseBranchName,
 				title,
 				body,
 				draft
@@ -68,13 +69,12 @@ export class GitLabPrService implements ForgePrService {
 	}
 
 	async fetch(number: number, options?: QueryOptions) {
-		const result = $derived(this.api.endpoints.getPr.fetch({ number }, options));
+		const result = this.api.endpoints.getPr.fetch({ number }, options);
 		return await result;
 	}
 
 	get(number: number, options?: StartQueryActionCreatorOptions) {
-		const result = $derived(this.api.endpoints.getPr.useQuery({ number }, options));
-		return result;
+		return this.api.endpoints.getPr.useQuery({ number }, options);
 	}
 
 	async merge(method: MergeMethod, number: number) {
@@ -117,7 +117,8 @@ function injectEndpoints(api: GitLabApi) {
 					const upstreamProject = await api.Projects.show(upstreamProjectId);
 					const mr = await api.MergeRequests.create(forkProjectId, base, head, title, {
 						description: body,
-						targetProjectId: upstreamProject.id
+						targetProjectId: upstreamProject.id,
+						removeSourceBranch: true
 					});
 					return { data: mrToInstance(mr) };
 				},

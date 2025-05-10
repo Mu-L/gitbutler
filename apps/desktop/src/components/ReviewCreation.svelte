@@ -27,7 +27,9 @@
 	import { StackPublishingService } from '$lib/history/stackPublishingService';
 	import { showError, showToast } from '$lib/notifications/toasts';
 	import { ProjectsService } from '$lib/project/projectsService';
+	import { RemotesService } from '$lib/remotes/remotesService';
 	import { StackService } from '$lib/stacks/stackService.svelte';
+	import { parseRemoteUrl } from '$lib/url/gitUrl';
 	import { UserService } from '$lib/user/userService';
 	import { getBranchNameFromRef } from '$lib/utils/branch';
 	import { sleep } from '$lib/utils/sleep';
@@ -63,6 +65,7 @@
 	const userService = getContext(UserService);
 	const templateService = getContext(TemplateService);
 	const aiService = getContext(AIService);
+	const remotesService = getContext(RemotesService);
 
 	const user = userService.user;
 	const project = projectsService.getProjectStore(projectId);
@@ -131,11 +134,13 @@
 		});
 	});
 
+	let isCreatingReview = $state<boolean>(false);
 	const isExecuting = $derived(
 		branchPublishing.current.isLoading ||
 			PRNumberUpdate.current.isLoading ||
 			stackPush.current.isLoading ||
-			aiIsLoading
+			aiIsLoading ||
+			isCreatingReview
 	);
 
 	const canPublishBR = $derived(!!($canPublish && branch?.name && !branch.reviewId));
@@ -188,6 +193,9 @@
 		if (!branch) return;
 		if (!$user) return;
 
+		isCreatingReview = true;
+		await tick();
+
 		const upstreamBranchName = await pushIfNeeded();
 
 		let reviewId: string | undefined;
@@ -226,6 +234,7 @@
 		prBody.reset();
 		prTitle.reset();
 
+		isCreatingReview = false;
 		onClose();
 	}
 
@@ -276,12 +285,23 @@
 				base = branchParent.name;
 			}
 
+			const pushRemoteName = baseBranch.actualPushRemoteName();
+			const allRemotes = await remotesService.remotes(projectId);
+			const pushRemote = allRemotes.find((r) => r.name === pushRemoteName);
+			const pushRemoteUrl = pushRemote?.url;
+
+			const repoInfo = parseRemoteUrl(pushRemoteUrl);
+
+			const upstreamName = repoInfo?.owner
+				? `${repoInfo.owner}:${params.upstreamBranchName}`
+				: params.upstreamBranchName;
+
 			const pr = await prService.createPr({
 				title: params.title,
 				body: params.body,
 				draft: params.draft,
 				baseBranchName: base,
-				upstreamName: params.upstreamBranchName
+				upstreamName
 			});
 
 			// Store the new pull request number with the branch data.
@@ -391,7 +411,7 @@
 		disabled={isExecuting}
 		initialValue={prBody.value}
 		enableFileUpload
-		placeholder={'PR Description'}
+		placeholder="PR Description"
 		{onAiButtonClick}
 		{canUseAI}
 		{aiIsLoading}

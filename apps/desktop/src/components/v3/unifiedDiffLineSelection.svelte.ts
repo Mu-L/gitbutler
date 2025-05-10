@@ -1,4 +1,4 @@
-import { type TreeChange } from '$lib/hunks/change';
+import { previousPathBytesFromTreeChange, type TreeChange } from '$lib/hunks/change';
 import { leftJoinBy, outerJoinBy } from '$lib/utils/array';
 import { isDefined } from '@gitbutler/ui/utils/typeguards';
 import type { DiffHunk } from '$lib/hunks/hunk';
@@ -21,7 +21,8 @@ export default class LineSelection {
 		this.change
 			? {
 					path: this.change.path,
-					pathBytes: this.change.pathBytes
+					pathBytes: this.change.pathBytes,
+					previousPathBytes: previousPathBytesFromTreeChange(this.change)
 				}
 			: undefined
 	);
@@ -56,7 +57,7 @@ export default class LineSelection {
 		}
 
 		if (selection === undefined) {
-			this.changeSelection.add({
+			this.changeSelection.upsert({
 				type: 'partial',
 				...this.pathData,
 				hunks: [{ type: 'partial', ...hunk, lines: linesSelected }]

@@ -100,11 +100,32 @@ pub enum Subcommands {
     },
     /// Return the dependencies of worktree changes with the commits that last changed them.
     #[clap(visible_alias = "dep")]
-    HunkDependency,
+    HunkDependency {
+        /// Whether to show the dependencies in the ui format.
+        #[clap(long, default_value_t = false)]
+        simple: bool,
+    },
     /// Returns the list of stacks that are currently part of the GitButler workspace.
     Stacks,
     /// Return all stack branches related to the given `id`.
-    StackBranches { id: String },
+    StackBranches {
+        /// The ID of the stack to list branches from.
+        ///
+        /// If creating a branch, this is optionally the stack to which the branch will be added.
+        /// If no ID is present while creating a branch, a new stack will be created that will
+        /// contain the brand new branch.
+        id: Option<String>,
+        /// Optional. The name of the branch to create.
+        ///
+        /// If this is set, a branch will be created with the given name.
+        #[clap(long, short = 'b')]
+        branch_name: Option<String>,
+        /// Optional. The description of the branch to create.
+        ///
+        /// This is the place where some metadata about the branch can be stored.
+        #[clap(long, short = 'd')]
+        description: Option<String>,
+    },
     /// Returns all commits for the branch with the given `name` in the stack with the given `id`.
     StackBranchCommits { id: String, name: String },
 }
