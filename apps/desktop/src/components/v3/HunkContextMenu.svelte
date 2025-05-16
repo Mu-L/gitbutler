@@ -12,9 +12,12 @@
 </script>
 
 <script lang="ts">
+	import { ircEnabled } from '$lib/config/uiFeatureFlags';
 	import { isDiffHunk, lineIdsToHunkHeaders, type DiffHunk } from '$lib/hunks/hunk';
+	import { IrcService } from '$lib/irc/ircService.svelte';
 	import { SETTINGS, type Settings } from '$lib/settings/userSettings';
 	import { StackService } from '$lib/stacks/stackService.svelte';
+	import { TestId } from '$lib/testing/testIds';
 	import { getEditorUri, openExternalUrl } from '$lib/utils/url';
 	import { getContextStoreBySymbol, inject } from '@gitbutler/shared/context';
 	import ContextMenu from '@gitbutler/ui/ContextMenu.svelte';
@@ -29,14 +32,18 @@
 		projectId: string;
 		change: TreeChange;
 		projectPath: string | undefined;
-		readonly: boolean;
+		discardable: boolean;
 		unSelectHunk: (hunk: DiffHunk) => void;
 	}
 
-	const { trigger, projectId, change, projectPath, readonly, unSelectHunk }: Props = $props();
+	const { trigger, projectId, change, projectPath, discardable, unSelectHunk }: Props = $props();
 
-	const [stackService] = inject(StackService);
+	const [stackService, ircService] = inject(StackService, IrcService);
+
 	const userSettings = getContextStoreBySymbol<Settings, Writable<Settings>>(SETTINGS);
+	const ircChats = $derived(ircService.getChats());
+	const ircUsers = $derived(Object.keys(ircChats));
+	const ircChannels = $derived(Object.keys(ircService.getChannels()));
 
 	const filePath = $derived(change.path);
 	let contextMenu: ReturnType<typeof ContextMenu> | undefined;
@@ -96,21 +103,23 @@
 	}
 </script>
 
-<ContextMenu bind:this={contextMenu} rightClickTrigger={trigger}>
+<ContextMenu testId={TestId.HunkContextMenu} bind:this={contextMenu} rightClickTrigger={trigger}>
 	{#snippet children(item)}
 		{#if isHunkContextItem(item)}
 			<ContextMenuSection>
-				{#if !readonly}
+				{#if discardable}
 					<ContextMenuItem
-						label="Discard hunk"
+						testId={TestId.HunkContextMenu_DiscardChange}
+						label="Discard change"
 						onclick={() => {
 							discardHunk(item);
 							contextMenu?.close();
 						}}
 					/>
 				{/if}
-				{#if item.selectedLines !== undefined && item.selectedLines.length > 0 && !readonly}
+				{#if item.selectedLines !== undefined && item.selectedLines.length > 0 && discardable}
 					<ContextMenuItem
+						testId={TestId.HunkContextMenu_DiscardLines}
 						label={getDiscardLineLabel(item)}
 						onclick={() => {
 							discardHunkLines(item);
@@ -118,8 +127,33 @@
 						}}
 					/>
 				{/if}
+				{#if $ircEnabled}
+					{#each ircUsers as ircUser}
+						<ContextMenuItem
+							label={ircUser}
+							onclick={() => {
+								const data = btoa(JSON.stringify({ change, diff: item.hunk }));
+								if (!data) return;
+								ircService.sendToNick(ircUser, change.path, data);
+								contextMenu?.close();
+							}}
+						/>
+					{/each}
+					{#each ircChannels as ircChannel}
+						<ContextMenuItem
+							label={ircChannel}
+							onclick={() => {
+								const data = btoa(JSON.stringify({ change, diff: item.hunk }));
+								if (!data) return;
+								ircService.sendToGroup(ircChannel, change.path, data);
+								contextMenu?.close();
+							}}
+						/>
+					{/each}
+				{/if}
 				{#if item.beforeLineNumber !== undefined || item.afterLineNumber !== undefined}
 					<ContextMenuItem
+						testId={TestId.HunkContextMenu_OpenInEditor}
 						label="Open in {$userSettings.defaultCodeEditor.displayName}"
 						onclick={() => {
 							if (projectPath) {
@@ -136,7 +170,7 @@
 				{/if}
 			</ContextMenuSection>
 		{:else}
-			{'Malformed item :('}
+			Malformed item :(
 		{/if}
 	{/snippet}
 </ContextMenu>

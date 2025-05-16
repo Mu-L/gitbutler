@@ -21,6 +21,7 @@
 	} from '$lib/dragging/stackingReorderDropzoneManager';
 	import { DefaultForgeFactory } from '$lib/forge/forgeFactory.svelte';
 	import { StackService, type SeriesIntegrationStrategy } from '$lib/stacks/stackService.svelte';
+	import { UiState } from '$lib/state/uiState.svelte';
 	import { getContext } from '@gitbutler/shared/context';
 	import { getContextStore } from '@gitbutler/shared/context';
 	import Button from '@gitbutler/ui/Button.svelte';
@@ -38,7 +39,7 @@
 		},
 		reset: {
 			label: 'Reset to remote…',
-			style: 'ghost',
+			style: 'neutral',
 			kind: 'outline',
 			icon: 'warning-small',
 			action: confirmReset
@@ -67,8 +68,10 @@
 	const stack = getContextStore(BranchStack);
 	const lineManagerFactory = getContext(LineManagerFactory);
 	const stackService = getContext(StackService);
+	const [integrateUpstreamCommits] = stackService.integrateUpstreamCommits;
 
 	const forge = getContext(DefaultForgeFactory);
+	const uiState = getContext(UiState);
 
 	const localAndRemoteCommits = $derived(
 		currentSeries.patches.filter((patch) => patch.status === 'LocalAndRemote')
@@ -111,7 +114,7 @@
 	async function integrate(strategy?: SeriesIntegrationStrategy): Promise<void> {
 		isIntegratingCommits = true;
 		try {
-			await stackService.integrateUpstreamCommits({
+			await integrateUpstreamCommits({
 				projectId,
 				stackId: $stack.id,
 				seriesName: currentSeries.name,
@@ -231,7 +234,8 @@
 						stackId,
 						commit: dzCommit,
 						// TODO: Use correct value!
-						okWithForce: true
+						okWithForce: true,
+						uiState
 					})}
 					<Dropzone handlers={[amendHandler, squashHandler, hunkHandler]}>
 						{#snippet overlay({ hovered, activated, handler })}
@@ -327,12 +331,10 @@
 			close();
 		}}
 	>
-		{#snippet children()}
-			<p class="text-13 text-body helper-text">
-				This will reset the branch to the state of the remote branch. All local changes will be
-				overwritten.
-			</p>
-		{/snippet}
+		<p class="text-13 text-body helper-text">
+			This will reset the branch to the state of the remote branch. All local changes will be
+			overwritten.
+		</p>
 		{#snippet controls(close)}
 			<Button kind="outline" type="reset" onclick={close}>Cancel</Button>
 			<Button style="error" type="submit">Reset</Button>

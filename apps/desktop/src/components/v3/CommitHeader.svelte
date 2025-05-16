@@ -1,30 +1,33 @@
 <script lang="ts">
+	import { TestId } from '$lib/testing/testIds';
 	import { splitMessage } from '$lib/utils/commitMessage';
+	import Tooltip from '@gitbutler/ui/Tooltip.svelte';
 
 	type Props = {
-		row?: boolean;
+		truncate?: boolean;
 		commitMessage: string;
 		className?: string;
 	};
 
-	const { commitMessage, row, className }: Props = $props();
+	const { commitMessage, truncate, className }: Props = $props();
 
 	const title = $derived(splitMessage(commitMessage).title);
+
+	function getTitle() {
+		if (title) {
+			return title;
+		}
+		return 'Empty commit. Drag changes here';
+	}
 </script>
 
-<h3 class="{className} commit-title" class:row>
-	{title}
-</h3>
-
-<style>
-	.commit-title {
-		flex-grow: 1;
-	}
-
-	.row {
-		text-align: left;
-		text-overflow: ellipsis;
-		overflow: hidden;
-		white-space: nowrap;
-	}
-</style>
+<Tooltip text={getTitle()}>
+	<h3
+		data-testid={TestId.CommitDrawerTitle}
+		class="{className} commit-title"
+		class:truncate
+		class:text-clr3={!title}
+	>
+		{getTitle()}
+	</h3>
+</Tooltip>

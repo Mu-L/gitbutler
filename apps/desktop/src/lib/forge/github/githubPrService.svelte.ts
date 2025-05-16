@@ -2,7 +2,9 @@ import { ghQuery } from '$lib/forge/github/ghQuery';
 import {
 	ghResponseToInstance,
 	parseGitHubDetailedPullRequest,
-	type CreatePrResult
+	type CreatePrResult,
+	type DetailedGitHubPullRequestWithPermissions,
+	type GitHubRepoPermissions
 } from '$lib/forge/github/types';
 import {
 	MergeMethod,
@@ -20,6 +22,7 @@ import type { GitHubApi } from '$lib/state/clientState.svelte';
 import type { StartQueryActionCreatorOptions } from '@reduxjs/toolkit/query';
 
 export class GitHubPrService implements ForgePrService {
+	readonly unit = { name: 'Pull request', abbr: 'PR', symbol: '#' };
 	loading = writable(false);
 	private api: ReturnType<typeof injectEndpoints>;
 
@@ -72,13 +75,12 @@ export class GitHubPrService implements ForgePrService {
 	}
 
 	async fetch(number: number, options?: QueryOptions) {
-		const result = $derived(this.api.endpoints.getPr.fetch({ number }, options));
+		const result = this.api.endpoints.getPr.fetch({ number }, options);
 		return await result;
 	}
 
 	get(number: number, options?: StartQueryActionCreatorOptions) {
-		const result = $derived(this.api.endpoints.getPr.useQuery({ number }, options));
-		return result;
+		return this.api.endpoints.getPr.useQuery({ number }, options);
 	}
 
 	async merge(method: MergeMethod, number: number) {
@@ -100,19 +102,70 @@ export class GitHubPrService implements ForgePrService {
 	}
 }
 
+async function fetchRepoPermissions(
+	owner: string,
+	repo: string,
+	extra: unknown
+): Promise<GitHubRepoPermissions | undefined> {
+	try {
+		const repoResponse = await ghQuery(
+			{
+				domain: 'repos',
+				action: 'get',
+				parameters: { owner, repo },
+				extra: extra
+			},
+			extra,
+			'required'
+		);
+
+		if (repoResponse.error) {
+			throw repoResponse.error;
+		}
+
+		return repoResponse.data.permissions;
+	} catch (err) {
+		console.error(`Exception fetching repository permissions for ${owner}/${repo}:`, err);
+		return undefined;
+	}
+}
+
 function injectEndpoints(api: GitHubApi) {
 	return api.injectEndpoints({
 		endpoints: (build) => ({
 			getPr: build.query<DetailedPullRequest, { number: number }>({
-				queryFn: async (args, api) =>
-					parseGitHubDetailedPullRequest(
-						await ghQuery({
-							domain: 'pulls',
-							action: 'get',
-							parameters: { pull_number: args.number },
-							extra: api.extra
-						})
-					),
+				queryFn: async (args, api) => {
+					const prResponse = await ghQuery({
+						domain: 'pulls',
+						action: 'get',
+						parameters: { pull_number: args.number },
+						extra: api.extra
+					});
+
+					if (prResponse.error) {
+						return { error: prResponse.error };
+					}
+
+					const prData = prResponse.data;
+					const owner = prData.base?.repo?.owner?.login;
+					const repo = prData.base?.repo?.name;
+
+					const permissions =
+						owner && repo ? await fetchRepoPermissions(owner, repo, api.extra) : undefined;
+
+					const combinedData: DetailedGitHubPullRequestWithPermissions = {
+						...prData,
+						permissions
+					};
+
+					const finalResult = parseGitHubDetailedPullRequest({ data: combinedData });
+
+					if (finalResult.error) {
+						return { error: finalResult.error };
+					}
+
+					return { data: finalResult.data };
+				},
 				providesTags: (_result, _error, args) => providesItem(ReduxTag.PullRequests, args.number)
 			}),
 			createPr: build.mutation<
@@ -130,12 +183,17 @@ function injectEndpoints(api: GitHubApi) {
 			}),
 			mergePr: build.mutation<void, { number: number; method: MergeMethod }>({
 				queryFn: async ({ number, method: method }, api) => {
-					await ghQuery({
+					const result = await ghQuery({
 						domain: 'pulls',
 						action: 'merge',
 						parameters: { pull_number: number, merge_method: method },
 						extra: api.extra
 					});
+
+					if (result.error) {
+						return { error: result.error };
+					}
+
 					return { data: undefined };
 				},
 				invalidatesTags: [invalidatesList(ReduxTag.PullRequests)]
@@ -152,7 +210,7 @@ function injectEndpoints(api: GitHubApi) {
 				}
 			>({
 				queryFn: async ({ number, update }, api) => {
-					await ghQuery({
+					const result = await ghQuery({
 						domain: 'pulls',
 						action: 'update',
 						parameters: {
@@ -163,6 +221,9 @@ function injectEndpoints(api: GitHubApi) {
 						},
 						extra: api.extra
 					});
+					if (result.error) {
+						return { error: result.error };
+					}
 					return { data: undefined };
 				},
 				invalidatesTags: [invalidatesList(ReduxTag.PullRequests)]

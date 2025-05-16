@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use gitbutler_commit::commit_headers::CommitHeadersV2;
 use gitbutler_oplog::SnapshotExt;
 use gitbutler_oxidize::{git2_to_gix_object_id, GixRepositoryExt, OidExt, RepoExt};
@@ -30,7 +30,12 @@ impl BranchManager<'_> {
 
         // We don't want to try unapplying branches which are marked as not in workspace by the new metric
         if !stack.in_workspace {
-            bail!("Can not unapply branches that are already not in the workspace")
+            return Ok(stack
+                .heads
+                .first()
+                .expect("Stacks always have one branch")
+                .full_name()?
+                .to_string());
         }
 
         _ = self.ctx.snapshot_branch_deletion(stack.name.clone(), perm);
@@ -77,7 +82,9 @@ impl BranchManager<'_> {
             let workspace_base = gix_repo
                 .find_commit(workspace_base(self.ctx, perm.read_permission())?)?
                 .tree_id()?;
-            let stack_head = gix_repo.find_commit(stack.head(&gix_repo)?)?.tree_id()?;
+            let stack_head = gix_repo
+                .find_commit(stack.head_oid(&gix_repo)?)?
+                .tree_id()?;
 
             let mut merge = gix_repo.merge_trees(
                 stack_head,
@@ -95,7 +102,7 @@ impl BranchManager<'_> {
                 .context("failed to checkout tree")?;
         } else {
             let gix_repo = self.ctx.gix_repo()?;
-            let head = stack.head(&gix_repo)?;
+            let head = stack.head_oid(&gix_repo)?;
             let head = repo.find_commit(head.to_git2())?;
 
             // If there are uncommited changes, we should make a wip commit.
@@ -128,7 +135,7 @@ impl BranchManager<'_> {
                                 .collect::<Vec<(PathBuf, Vec<VirtualBranchHunk>)>>();
                             let tree_oid = gitbutler_diff::write::hunks_onto_oid(
                                 self.ctx,
-                                stack.head(&gix_repo)?.to_git2(),
+                                stack.head_oid(&gix_repo)?.to_git2(),
                                 files,
                             )?;
                             let mut merge = gix_repo.merge_trees(
@@ -184,7 +191,7 @@ impl BranchManager<'_> {
         // Build wip tree as either any uncommitted changes or an empty tree
         let vbranch_wip_tree = repo.find_tree(stack.tree(self.ctx)?)?;
         let vbranch_head_tree = repo
-            .find_commit(stack.head(&repo.to_gix()?)?.to_git2())?
+            .find_commit(stack.head_oid(&repo.to_gix()?)?.to_git2())?
             .tree()?;
 
         let tree = if vbranch_head_tree.id() != vbranch_wip_tree.id() {
@@ -201,7 +208,7 @@ impl BranchManager<'_> {
         // Commit wip commit
         let committer = gitbutler_repo::signature(SignaturePurpose::Committer)?;
         let author = gitbutler_repo::signature(SignaturePurpose::Author)?;
-        let parent = stack.head(&gix_repo)?;
+        let parent = stack.head_oid(&gix_repo)?;
         let parent = repo.find_commit(parent.to_git2())?;
 
         let commit_headers = CommitHeadersV2::new();

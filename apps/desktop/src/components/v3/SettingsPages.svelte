@@ -1,4 +1,4 @@
-<script module>
+<script lang="ts" module>
 	import iconsJson from '@gitbutler/ui/data/icons.json';
 	import { type Component } from 'svelte';
 	import type { Snippet } from 'svelte';
@@ -215,7 +215,7 @@
 		gap: 16px;
 		max-width: 640px;
 		width: 100%;
-		margin: auto;
+		margin: 0 auto;
 	}
 
 	.page-view__title {

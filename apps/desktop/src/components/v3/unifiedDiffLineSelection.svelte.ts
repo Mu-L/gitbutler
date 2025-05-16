@@ -1,4 +1,4 @@
-import { type TreeChange } from '$lib/hunks/change';
+import { previousPathBytesFromTreeChange, type TreeChange } from '$lib/hunks/change';
 import { leftJoinBy, outerJoinBy } from '$lib/utils/array';
 import { isDefined } from '@gitbutler/ui/utils/typeguards';
 import type { DiffHunk } from '$lib/hunks/hunk';
@@ -21,7 +21,8 @@ export default class LineSelection {
 		this.change
 			? {
 					path: this.change.path,
-					pathBytes: this.change.pathBytes
+					pathBytes: this.change.pathBytes,
+					previousPathBytes: previousPathBytesFromTreeChange(this.change)
 				}
 			: undefined
 	);
@@ -56,7 +57,7 @@ export default class LineSelection {
 		}
 
 		if (selection === undefined) {
-			this.changeSelection.add({
+			this.changeSelection.upsert({
 				type: 'partial',
 				...this.pathData,
 				hunks: [{ type: 'partial', ...hunk, lines: linesSelected }]
@@ -70,7 +71,7 @@ export default class LineSelection {
 		}
 
 		if (selection.type === 'partial') {
-			this.handleLineStageInPartialSelection(selection, hunk, linesSelected, restLines);
+			this.handleLineStageInPartialSelection(allHunks, selection, hunk, linesSelected, restLines);
 			return;
 		}
 
@@ -78,6 +79,7 @@ export default class LineSelection {
 	}
 
 	private handleLineStageInPartialSelection(
+		allHunks: DiffHunk[],
 		selection: PartiallySelectedFile,
 		hunk: DiffHunk,
 		linesSelected: LineId[],
@@ -95,6 +97,7 @@ export default class LineSelection {
 			// Handle existing partial hunk selection
 			if (stagedHunk.type === 'partial') {
 				this.handleHunkPartiallyStaged(
+					allHunks,
 					stagedHunk,
 					linesSelected,
 					restLines,
@@ -161,6 +164,7 @@ export default class LineSelection {
 	}
 
 	private handleHunkPartiallyStaged(
+		allHunks: DiffHunk[],
 		stagedHunk: PartiallySelectedHunk,
 		linesSelected: LineId[],
 		restLines: LineId[],
@@ -202,7 +206,19 @@ export default class LineSelection {
 			return;
 		}
 
-		const fullySelectedHunks = newHunks.every((h) => h.type === 'full');
+		const fullySelectedHunks = allHunks.every((h) => {
+			const selectedHunk = newHunks.find(
+				(selectedHunk) =>
+					selectedHunk.newStart === h.newStart &&
+					selectedHunk.newLines === h.newLines &&
+					selectedHunk.oldStart === h.oldStart &&
+					selectedHunk.oldLines === h.oldLines
+			);
+
+			if (!selectedHunk) return false;
+
+			return selectedHunk.type === 'full';
+		});
 		const type = fullySelectedHunks ? 'full' : 'partial';
 		const hunks = fullySelectedHunks ? [] : newHunks;
 		this.changeSelection.update({

@@ -3,12 +3,12 @@
 	import MessageEditorRuler from '$components/v3/editor/MessageEditorRuler.svelte';
 	import CommitSuggestions from '$components/v3/editor/commitSuggestions.svelte';
 	import { showError } from '$lib/notifications/toasts';
+	import { SETTINGS, type Settings } from '$lib/settings/userSettings';
 	import { UiState } from '$lib/state/uiState.svelte';
-	import { getContext } from '@gitbutler/shared/context';
+	import { getContext, getContextStoreBySymbol } from '@gitbutler/shared/context';
 	import { uploadFiles } from '@gitbutler/shared/dom';
 	import { persisted } from '@gitbutler/shared/persisted';
 	import { UploadsService } from '@gitbutler/shared/uploads/uploadsService';
-	import { debouncePromise } from '@gitbutler/shared/utils/misc';
 	import Button from '@gitbutler/ui/Button.svelte';
 	import Checkbox from '@gitbutler/ui/Checkbox.svelte';
 	import EmojiPickerButton from '@gitbutler/ui/EmojiPickerButton.svelte';
@@ -36,6 +36,7 @@
 		canUseAI: boolean;
 		aiIsLoading: boolean;
 		suggestionsHandler?: CommitSuggestions;
+		testId?: string;
 	}
 
 	let {
@@ -48,7 +49,8 @@
 		onAiButtonClick,
 		canUseAI,
 		aiIsLoading,
-		suggestionsHandler
+		suggestionsHandler,
+		testId
 	}: Props = $props();
 
 	const MIN_RULER_VALUE = 30;
@@ -56,6 +58,7 @@
 
 	const uiState = getContext(UiState);
 	const uploadsService = getContext(UploadsService);
+	const userSettings = getContextStoreBySymbol<Settings>(SETTINGS);
 
 	const useRichText = uiState.global.useRichText;
 	const useRuler = uiState.global.useRuler;
@@ -92,9 +95,12 @@
 		await suggestionsHandler?.onChange(textUpToAnchor, textAfterAnchor);
 	}
 
-	const debouncedHandleChange = debouncePromise(handleChange, 700);
-
 	function handleKeyDown(event: KeyboardEvent | null) {
+		if (event && !event.metaKey && !event.ctrlKey) {
+			// Prevent regular keystrokes from propagating so that we don't
+			// trigger keyboard shortcuts while the user is typing a message.
+			event.stopPropagation();
+		}
 		if (event && onKeyDown?.(event)) {
 			return true;
 		}
@@ -197,10 +203,8 @@
 		close();
 	}}
 >
-	{#snippet children()}
-		Your file will be stored in GitButler’s digital vault, safe and sound. We promise it’s secure,
-		so feel free to share the link however you like 🔐
-	{/snippet}
+	Your file will be stored in GitButler’s digital vault, safe and sound. We promise it’s secure, so
+	feel free to share the link however you like 🔐
 	{#snippet controls(close)}
 		<div class="modal-footer">
 			<label for="dont-show-again" class="modal-footer__checkbox">
@@ -218,6 +222,9 @@
 	style:--lexical-input-client-text-wrap={useRuler.current && !useRichText.current
 		? 'nowrap'
 		: 'normal'}
+	style:--code-block-font={$userSettings.diffFont}
+	style:--code-block-tab-size={$userSettings.tabSize}
+	style:--code-block-ligatures={$userSettings.diffLigatures ? 'common-ligatures' : 'normal'}
 >
 	<div class="editor-header">
 		<div class="editor-tabs">
@@ -251,6 +258,7 @@
 		onmouseleave={() => (isEditorHovered = false)}
 	>
 		<div
+			data-testid={testId}
 			role="presentation"
 			class="message-textarea__inner"
 			onclick={() => {
@@ -269,9 +277,9 @@
 						{placeholder}
 						bind:this={composer}
 						markdown={useRichText.current}
-						onError={(e) => showError('Editor error', e)}
+						onError={(e) => console.warn('Editor error', e)}
 						initialText={initialValue}
-						onChange={debouncedHandleChange}
+						onChange={handleChange}
 						onKeyDown={handleKeyDown}
 						onFocus={() => (isEditorFocused = true)}
 						onBlur={() => (isEditorFocused = false)}
@@ -512,7 +520,6 @@
 	}
 
 	/*  */
-
 	.message-textarea__inner {
 		flex: 1;
 		display: flex;

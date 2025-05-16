@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { TestId } from '$lib/testing/testIds';
 	import Badge from '@gitbutler/ui/Badge.svelte';
 
 	type Props = {
@@ -14,6 +15,7 @@
 
 {#snippet indicator(args?: { last?: boolean; first?: boolean; draft?: boolean })}
 	<div
+		data-testid={TestId.YourCommitGoesHere}
 		class="indicator"
 		class:first={args?.first}
 		class:last={args?.last}
@@ -57,8 +59,8 @@
 			border-radius: 0 0 var(--radius-l) var(--radius-l);
 		}
 		&.draft {
-			border-top: none;
-			border-bottom: none;
+			border-left: 1px solid var(--clr-border-2);
+			border-right: 1px solid var(--clr-border-2);
 			border-radius: 0 0 var(--radius-l) var(--radius-l);
 		}
 	}
@@ -139,8 +141,4 @@
 			opacity var(--transition-fast),
 			transform var(--transition-medium);
 	}
-
-	/* .commit-here_last {
-		margin-bottom: 0;
-	} */
 </style>

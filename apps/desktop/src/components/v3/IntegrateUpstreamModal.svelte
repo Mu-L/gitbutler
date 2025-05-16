@@ -4,6 +4,7 @@
 	import BaseBranchService from '$lib/baseBranch/baseBranchService.svelte';
 	import { DefaultForgeFactory } from '$lib/forge/forgeFactory.svelte';
 	import { type Stack } from '$lib/stacks/stack';
+	import { TestId } from '$lib/testing/testIds';
 	import {
 		getBaseBranchResolution,
 		type BaseBranchResolutionApproach,
@@ -13,16 +14,20 @@
 		type BranchStatus,
 		sortStatusInfoV3,
 		getResolutionApproachV3,
-		type StackStatusInfoV3
+		type StackStatusInfoV3,
+		type StackStatusesWithBranchesV3
 	} from '$lib/upstream/types';
 	import { UpstreamIntegrationService } from '$lib/upstream/upstreamIntegrationService.svelte';
 	import { openExternalUrl } from '$lib/utils/url';
 	import { getContext } from '@gitbutler/shared/context';
 	import Badge from '@gitbutler/ui/Badge.svelte';
 	import Button from '@gitbutler/ui/Button.svelte';
-	import IntegrationSeriesRow from '@gitbutler/ui/IntegrationSeriesRow.svelte';
+	import IntegrationSeriesRow, {
+		type BranchShouldBeDeletedMap
+	} from '@gitbutler/ui/IntegrationSeriesRow.svelte';
 	import Modal from '@gitbutler/ui/Modal.svelte';
 	import SimpleCommitRow from '@gitbutler/ui/SimpleCommitRow.svelte';
+	import FileListItemV3 from '@gitbutler/ui/file/FileListItemV3.svelte';
 	import Select from '@gitbutler/ui/select/Select.svelte';
 	import SelectItem from '@gitbutler/ui/select/SelectItem.svelte';
 	import { pxToRem } from '@gitbutler/ui/utils/pxToRem';
@@ -48,45 +53,44 @@
 
 	let modal = $state<Modal>();
 	let integratingUpstream = $state<OperationState>('inert');
-	let results = $state(new SvelteMap<string, Resolution>());
+	const results = new SvelteMap<string, Resolution>();
 	let statuses = $state<StackStatusInfoV3[]>([]);
 	let baseResolutionApproach = $state<BaseBranchResolutionApproach | undefined>();
 	let targetCommitOid = $state<string | undefined>(undefined);
+	let branchStatuses = $state<StackStatusesWithBranchesV3 | undefined>();
 
 	const isDivergedResolved = $derived(base?.diverged && !baseResolutionApproach);
 	const [integrateUpstream] = $derived(upstreamIntegrationService.integrateUpstream(projectId));
 
-	// Will re-fetch upstream statuses if the target commit oid changes
-	const branchStatuses = $derived(
-		upstreamIntegrationService.upstreamStatuses(projectId, targetCommitOid)
-	);
-
 	$effect(() => {
-		if (branchStatuses.current?.type !== 'updatesRequired') {
+		if (branchStatuses?.type !== 'updatesRequired') {
 			statuses = [];
 			return;
 		}
 
-		const statusesTmp = [...branchStatuses.current.subject];
+		const statusesTmp = [...branchStatuses.subject];
 		statusesTmp.sort(sortStatusInfoV3);
 
 		// Side effect, refresh results
-		results = new SvelteMap(
-			statusesTmp.map((status) => {
-				const defaultApproach = getResolutionApproachV3(status);
-
-				return [
-					status.stack.id,
-					{
-						branchId: status.stack.id,
-						approach: defaultApproach,
-						deleteIntegratedBranches: false // TODO: Take input from the UI
-					}
-				];
-			})
-		);
+		results.clear();
+		for (const status of statusesTmp) {
+			results.set(status.stack.id, {
+				branchId: status.stack.id,
+				approach: getResolutionApproachV3(status),
+				deleteIntegratedBranches: true
+			});
+		}
 
 		statuses = statusesTmp;
+	});
+
+	// Re-fetch upstream statuses if the target commit oid changes
+	$effect(() => {
+		if (targetCommitOid) {
+			upstreamIntegrationService.upstreamStatuses(targetCommitOid).then((statuses) => {
+				branchStatuses = statuses;
+			});
+		}
 	});
 
 	// Resolve the target commit oid if the base branch diverged and the the resolution
@@ -131,8 +135,9 @@
 
 	export async function show() {
 		integratingUpstream = 'inert';
+		branchStatuses = undefined;
 		modal?.show();
-		targetCommitOid = undefined;
+		branchStatuses = await upstreamIntegrationService.upstreamStatuses(projectId, targetCommitOid);
 	}
 
 	export const imports = {
@@ -165,6 +170,22 @@
 
 		return statuses;
 	}
+	function getBranchShouldBeDeletedMap(
+		stackId: string,
+		stackStatus: StackStatus
+	): BranchShouldBeDeletedMap {
+		const branchShouldBeDeletedMap: BranchShouldBeDeletedMap = {};
+		stackStatus.branchStatuses.forEach((branch) => {
+			branchShouldBeDeletedMap[branch.name] = !!results.get(stackId)?.deleteIntegratedBranches;
+		});
+		return branchShouldBeDeletedMap;
+	}
+
+	function updateBranchShouldBeDeletedMap(stackId: string, shouldBeDeleted: boolean): void {
+		const result = results.get(stackId);
+		if (!result) return;
+		results.set(stackId, { ...result, deleteIntegratedBranches: shouldBeDeleted });
+	}
 
 	function integrationOptions(
 		stackStatus: StackStatus
@@ -185,31 +206,43 @@
 </script>
 
 {#snippet stackStatus(stack: Stack, stackStatus: StackStatus)}
-	<IntegrationSeriesRow series={integrationRowSeries(stackStatus)}>
-		{#snippet select()}
-			{#if !stackFullyIntegrated(stackStatus) && results.get(stack.id)}
-				<Select
-					value={results.get(stack.id)!.approach.type}
-					onselect={(value) => {
-						const result = results.get(stack.id)!;
-
-						results.set(stack.id, { ...result, approach: { type: value as OperationType } });
-					}}
-					options={integrationOptions(stackStatus)}
-				>
-					{#snippet itemSnippet({ item, highlighted })}
-						<SelectItem selected={highlighted} {highlighted}>
-							{item.label}
-						</SelectItem>
-					{/snippet}
-				</Select>
-			{/if}
-		{/snippet}
+	{@const branchShouldBeDeletedMap = getBranchShouldBeDeletedMap(stack.id, stackStatus)}
+	<IntegrationSeriesRow
+		testId={TestId.IntegrateUpstreamSeriesRow}
+		series={integrationRowSeries(stackStatus)}
+		{branchShouldBeDeletedMap}
+		updateBranchShouldBeDeletedMap={(_, shouldBeDeleted) =>
+			updateBranchShouldBeDeletedMap(stack.id, shouldBeDeleted)}
+	>
+		{#if !stackFullyIntegrated(stackStatus) && results.get(stack.id)}
+			<Select
+				value={results.get(stack.id)!.approach.type}
+				maxWidth={130}
+				onselect={(value) => {
+					const result = results.get(stack.id)!;
+					results.set(stack.id, { ...result, approach: { type: value as OperationType } });
+				}}
+				options={integrationOptions(stackStatus)}
+			>
+				{#snippet itemSnippet({ item, highlighted })}
+					<SelectItem selected={highlighted} {highlighted}>
+						{item.label}
+					</SelectItem>
+				{/snippet}
+			</Select>
+		{/if}
 	</IntegrationSeriesRow>
 {/snippet}
 
-<Modal bind:this={modal} {onClose} width={520} noPadding onSubmit={integrate}>
-	<ScrollableContainer maxHeight={'70vh'}>
+<Modal
+	testId={TestId.IntegrateUpstreamCommitsModal}
+	bind:this={modal}
+	{onClose}
+	width={520}
+	noPadding
+	onSubmit={integrate}
+>
+	<ScrollableContainer maxHeight="70vh">
 		{#if base}
 			<div class="section">
 				<h3 class="text-14 text-semibold section-title">
@@ -233,7 +266,34 @@
 				</div>
 			</div>
 		{/if}
+		<!-- CONFLICTED FILES -->
+		{#if branchStatuses?.type === 'updatesRequired' && branchStatuses?.worktreeConflicts.length > 0}
+			<div class="section">
+				<h3 class="text-14 text-semibold section-title">
+					<span>Conflicting uncommitted files</span>
 
+					<Badge>{branchStatuses?.worktreeConflicts.length}</Badge>
+				</h3>
+				<p class="text-12 text-clr2">
+					Updating the workspace will add conflict markers to the following files.
+				</p>
+				<div class="scroll-wrap">
+					<ScrollableContainer maxHeight={pxToRem(268)}>
+						{@const conflicts = branchStatuses?.worktreeConflicts}
+						{#each conflicts as file}
+							<FileListItemV3
+								listMode="list"
+								filePath={file}
+								clickable={false}
+								conflicted
+								isLast={file === conflicts[conflicts.length - 1]}
+							/>
+						{/each}
+					</ScrollableContainer>
+				</div>
+			</div>
+		{/if}
+		<!-- DIVERGED -->
 		{#if base?.diverged}
 			<div class="target-divergence">
 				<img class="target-icon" src="/images/domain-icons/trunk.svg" alt="" />
@@ -267,7 +327,7 @@
 				</div>
 			</div>
 		{/if}
-
+		<!-- STACKS AND BRANCHES TO UPDATE -->
 		{#if statuses.length > 0}
 			<div class="section" class:section-disabled={isDivergedResolved}>
 				<h3 class="text-14 text-semibold">To be updated:</h3>
@@ -286,6 +346,7 @@
 		<div class="controls">
 			<Button onclick={() => modal?.close()} kind="outline">Cancel</Button>
 			<Button
+				testId={TestId.IntegrateUpstreamActionButton}
 				wide
 				type="submit"
 				style="pop"

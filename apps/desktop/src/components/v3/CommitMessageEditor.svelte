@@ -8,14 +8,13 @@
 	import { AIService } from '$lib/ai/service';
 	import { projectAiGenEnabled } from '$lib/config/config';
 	import { UiState } from '$lib/state/uiState.svelte';
+	import { TestId } from '$lib/testing/testIds';
 	import { splitMessage } from '$lib/utils/commitMessage';
 	import { getContext } from '@gitbutler/shared/context';
 	import Button from '@gitbutler/ui/Button.svelte';
-	import { isDefined } from '@gitbutler/ui/utils/typeguards';
 	import { tick } from 'svelte';
 
 	type Props = {
-		existingCommitId?: string;
 		projectId: string;
 		stackId?: string;
 		actionLabel: string;
@@ -25,10 +24,10 @@
 		loading?: boolean;
 		initialTitle?: string;
 		initialMessage?: string;
+		existingCommitId?: string;
 	};
 
 	const {
-		existingCommitId,
 		projectId,
 		stackId,
 		actionLabel,
@@ -37,7 +36,8 @@
 		disabledAction,
 		loading,
 		initialTitle,
-		initialMessage
+		initialMessage,
+		existingCommitId
 	}: Props = $props();
 
 	const uiState = getContext(UiState);
@@ -50,7 +50,8 @@
 	const descriptionText = $derived(projectState.commitDescription);
 	const stackSelection = $derived(stackState?.selection);
 
-	// const useRichText = uiState.global.useRichText;
+	const effectiveTitleValue = $derived(titleText.current || (initialTitle ?? ''));
+	const effectiveDescriptionValue = $derived(descriptionText.current || (initialMessage ?? ''));
 
 	const suggestionsHandler = new CommitSuggestions(aiService, uiState);
 	let commitSuggestionsPlugin = $state<ReturnType<typeof CommitSuggestionsPlugin>>();
@@ -65,16 +66,6 @@
 		aiService.validateConfiguration().then((valid) => {
 			aiConfigurationValid = valid;
 		});
-	});
-
-	$effect(() => {
-		if (isDefined(initialTitle)) {
-			titleText.current = initialTitle;
-		}
-
-		if (isDefined(initialMessage)) {
-			descriptionText.current = initialMessage;
-		}
 	});
 
 	let generatedText = $state<string>('');
@@ -151,31 +142,32 @@
 
 <div class="commit-message-wrap">
 	<MessageEditorInput
+		testId={TestId.CommitDrawerTitleInput}
 		bind:ref={titleInput}
-		value={titleText.current}
+		value={effectiveTitleValue}
 		oninput={(e: Event) => {
 			const input = e.currentTarget as HTMLInputElement;
 			projectState.commitTitle.current = input.value;
 		}}
 		onkeydown={(e: KeyboardEvent) => {
-			if (e.key === 'Enter' || e.key === 'Tab') {
-				e.preventDefault();
-				composer?.focus();
-				return;
-			}
-
 			if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
 				e.preventDefault();
 				action();
 				return;
 			}
+
+			if (e.key === 'Enter' || e.key === 'Tab') {
+				e.preventDefault();
+				composer?.focus();
+				return;
+			}
 		}}
 	/>
-
 	<MessageEditor
+		testId={TestId.CommitDrawerDescriptionInput}
 		bind:this={composer}
-		initialValue={descriptionText.current}
-		placeholder={'Your commit message'}
+		initialValue={effectiveDescriptionValue}
+		placeholder="Your commit message"
 		{projectId}
 		{onAiButtonClick}
 		{canUseAI}
@@ -203,8 +195,13 @@
 	/>
 </div>
 <EditorFooter {onCancel}>
-	<Button style="pop" onclick={action} disabled={disabledAction} {loading} width={126}
-		>{actionLabel}</Button
+	<Button
+		testId={TestId.CommitDrawerActionButton}
+		style="pop"
+		onclick={action}
+		disabled={disabledAction}
+		{loading}
+		width={126}>{actionLabel}</Button
 	>
 </EditorFooter>
 

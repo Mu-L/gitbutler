@@ -1,6 +1,7 @@
 <script lang="ts">
 	import CanPublishReviewPlugin from '$components/v3/CanPublishReviewPlugin.svelte';
 	import { UiState } from '$lib/state/uiState.svelte';
+	import { TestId } from '$lib/testing/testIds';
 	import { getContext } from '@gitbutler/shared/context';
 	import Button from '@gitbutler/ui/Button.svelte';
 	import type { BranchDetails } from '$lib/stacks/stack';
@@ -58,6 +59,8 @@
 	);
 
 	const branchName = $derived(branchToReview?.name);
+	const prNumber = $derived(branchToReview?.prNumber ?? undefined);
+	const reviewId = $derived(branchToReview?.reviewId ?? undefined);
 
 	const canPublishBR = $derived(!!canPublishReviewPlugin?.imports.canPublishBR);
 	const canPublishPR = $derived(!!canPublishReviewPlugin?.imports.canPublishPR);
@@ -72,21 +75,40 @@
 		if (!branchName) return;
 
 		uiState.stack(stackId).selection.set({ branchName });
+		uiState.project(projectId).stackId.set(stackId);
 		uiState.project(projectId).drawerPage.set('review');
 	}
+
+	const tooltip = $derived.by(() => {
+		if (!branchName) {
+			return 'No available branches';
+		}
+
+		if (hasConflicts) {
+			return 'In order to push, please resolve any conflicted commits.';
+		} else {
+			return branches.length > 1 ? `Create for ${branchName}` : undefined;
+		}
+	});
 </script>
 
-<CanPublishReviewPlugin {projectId} {stackId} {branchName} bind:this={canPublishReviewPlugin} />
+<CanPublishReviewPlugin
+	{projectId}
+	{stackId}
+	{branchName}
+	{prNumber}
+	{reviewId}
+	bind:this={canPublishReviewPlugin}
+/>
 
-{#if canPublish}
+{#if canPublish && !branchEmpty}
 	<div class="publish-button" style:flex>
 		<Button
+			testId={TestId.StackPublishButton}
 			style="neutral"
 			wide
-			disabled={!branchName || hasConflicts || branchEmpty}
-			tooltip={hasConflicts
-				? 'In order to push, please resolve any conflicted commits.'
-				: `Create for ${branchName}`}
+			disabled={!branchName || hasConflicts}
+			{tooltip}
 			tooltipPosition="top"
 			onclick={publish}
 		>

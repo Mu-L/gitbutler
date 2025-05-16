@@ -7,15 +7,17 @@
 	import { combineResults } from '$lib/state/helpers';
 	import { WorktreeService } from '$lib/worktree/worktreeService.svelte';
 	import { inject } from '@gitbutler/shared/context';
+	import type { Modification } from '$lib/hunks/change';
 	import type { SelectedFile } from '$lib/selection/key';
 
 	type Props = {
 		selectedFile: SelectedFile;
 		projectId: string;
+		stackId?: string;
 		onCloseClick: () => void;
 	};
 
-	const { selectedFile, projectId, onCloseClick }: Props = $props();
+	const { selectedFile, projectId, onCloseClick, stackId }: Props = $props();
 
 	const [diffService, stackService, worktreeService] = inject(
 		DiffService,
@@ -44,8 +46,13 @@
 </script>
 
 {#if diffResult?.current}
-	<ReduxResult {projectId} result={combineResults(changeResult.current, diffResult.current)}>
+	<ReduxResult
+		{projectId}
+		{stackId}
+		result={combineResults(changeResult.current, diffResult.current)}
+	>
 		{#snippet children([change, diff], env)}
+			{@const isExecutable = (change.status.subject as Modification).flags}
 			<div class="selected-change-item">
 				<FileListItemWrapper
 					selectionId={selectedFile}
@@ -53,11 +60,14 @@
 					{change}
 					{diff}
 					isHeader
+					executable={!!isExecutable}
 					listMode="list"
 					{onCloseClick}
 				/>
 				<UnifiedDiffView
 					projectId={env.projectId}
+					stackId={env.stackId}
+					commitId={selectedFile.type === 'commit' ? selectedFile.commitId : undefined}
 					{change}
 					{diff}
 					selectable

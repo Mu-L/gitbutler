@@ -34,7 +34,7 @@
 		direction,
 		zIndex = 'var(--z-lifted)',
 		minWidth = 0,
-		maxWidth = 40,
+		maxWidth = 120,
 		minHeight = 0,
 		borderRadius = 'none',
 		imitateBorder,
@@ -157,7 +157,7 @@
 		&:focus,
 		&.dragging {
 			--resizer-line-color: var(--resizer-color);
-			--resizer-line-thickness: 0.15rem;
+			--resizer-line-thickness: 0.14rem;
 
 			& .resizer-line {
 				transition-delay: 0.1s;
@@ -176,7 +176,7 @@
 	}
 
 	.horizontal {
-		width: 8px;
+		width: 4px;
 		height: 100%;
 		cursor: col-resize;
 		top: 0;

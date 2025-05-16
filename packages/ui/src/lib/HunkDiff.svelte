@@ -10,11 +10,14 @@
 	import ScrollableContainer from '$lib/scroll/ScrollableContainer.svelte';
 	import {
 		type ContentSection,
+		type DependencyLock,
 		type LineId,
+		type LineLock,
 		type LineSelector,
 		parseHunk
 	} from '$lib/utils/diffParsing';
 	import type { ContextMenuParams } from '$lib/hunkDiff/HunkDiffRow.svelte';
+	import type { Snippet } from 'svelte';
 	interface Props {
 		filePath: string;
 		hunkStr: string;
@@ -28,6 +31,7 @@
 		stagedLines?: LineId[];
 		hideCheckboxes?: boolean;
 		selectedLines?: LineSelector[];
+		lineLocks?: LineLock[];
 		draggingDisabled?: boolean;
 		onChangeStage?: (staged: boolean) => void;
 		onLineClick?: (params: LineSelectionParams) => void;
@@ -36,6 +40,7 @@
 		onCopySelection?: (contentSections: ContentSection[]) => void;
 		handleLineContextMenu?: (params: ContextMenuParams) => void;
 		clickOutsideExcludeElement?: HTMLElement;
+		lockWarning?: Snippet<[DependencyLock[]]>;
 	}
 
 	const {
@@ -51,6 +56,7 @@
 		stagedLines,
 		hideCheckboxes,
 		selectedLines,
+		lineLocks,
 		onChangeStage,
 		onLineClick,
 		clearLineSelection,
@@ -58,7 +64,8 @@
 		onQuoteSelection,
 		handleLineContextMenu,
 		clickOutsideExcludeElement,
-		draggingDisabled
+		draggingDisabled,
+		lockWarning
 	}: Props = $props();
 
 	const BORDER_WIDTH = 1;
@@ -140,8 +147,10 @@
 				clearLineSelection={() => clearLineSelection?.(filePath)}
 				{wrapText}
 				{tabSize}
+				{diffFont}
 				{inlineUnifiedDiffs}
 				{selectedLines}
+				{lineLocks}
 				{numberHeaderWidth}
 				onCopySelection={onCopySelection && handleCopySelection}
 				{onQuoteSelection}
@@ -150,6 +159,7 @@
 				{hideCheckboxes}
 				{handleLineContextMenu}
 				{clickOutsideExcludeElement}
+				{lockWarning}
 			/>
 		</table>
 	</ScrollableContainer>
@@ -165,7 +175,6 @@
 		width: 100%;
 
 		&:hover .table__drag-handle {
-			transform: scale(1);
 			opacity: 1;
 		}
 	}
@@ -253,13 +262,10 @@
 		align-items: center;
 		border-radius: var(--radius-m);
 		opacity: 0;
-		transform: scale(0.9);
 		transform-origin: top right;
 		pointer-events: none;
 		color: var(--clr-text-2);
-		transition:
-			opacity 0.2s,
-			transform 0.2s;
+		transition: opacity 0.15s;
 	}
 
 	.table__lock {

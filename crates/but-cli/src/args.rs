@@ -1,3 +1,4 @@
+use gitbutler_stack::StackId;
 use std::path::PathBuf;
 
 #[derive(Debug, clap::Parser)]
@@ -19,7 +20,12 @@ pub struct Args {
     /// The production version is used if unset.
     #[clap(short = 's', long)]
     pub app_suffix: Option<String>,
-    /// Whether to use json output format.
+    /// Turn on V3 mode for those subcommands that support it.
+    ///
+    /// This helps test the output of certain functions in V3 mode, and/or compare.
+    #[clap(short = '3', long, env = "BUT3")]
+    pub v3: bool,
+    /// Whether to use JSON output format.
     #[clap(long, short = 'j')]
     pub json: bool,
 
@@ -100,13 +106,43 @@ pub enum Subcommands {
     },
     /// Return the dependencies of worktree changes with the commits that last changed them.
     #[clap(visible_alias = "dep")]
-    HunkDependency,
+    HunkDependency {
+        /// Whether to show the dependencies in the ui format.
+        #[clap(long, default_value_t = false)]
+        simple: bool,
+    },
+    Watch,
     /// Returns the list of stacks that are currently part of the GitButler workspace.
     Stacks,
+    /// Returns the list of stacks that are currently part of the GitButler workspace.
+    StackDetails {
+        /// The ID of the stack to list details for.
+        id: StackId,
+    },
     /// Return all stack branches related to the given `id`.
-    StackBranches { id: String },
+    StackBranches {
+        /// The ID of the stack to list branches from.
+        ///
+        /// If creating a branch, this is optionally the stack to which the branch will be added.
+        /// If no ID is present while creating a branch, a new stack will be created that will
+        /// contain the brand new branch.
+        id: Option<StackId>,
+        /// Optional. The name of the branch to create.
+        ///
+        /// If this is set, a branch will be created with the given name.
+        #[clap(long, short = 'b')]
+        branch_name: Option<String>,
+        /// Optional. The description of the branch to create.
+        ///
+        /// This is the place where some metadata about the branch can be stored.
+        #[clap(long, short = 'd')]
+        description: Option<String>,
+    },
     /// Returns all commits for the branch with the given `name` in the stack with the given `id`.
-    StackBranchCommits { id: String, name: String },
+    StackBranchCommits {
+        id: StackId,
+        name: String,
+    },
 }
 
 #[cfg(test)]

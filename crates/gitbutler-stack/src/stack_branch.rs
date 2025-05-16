@@ -143,14 +143,17 @@ impl StackBranch {
         }
     }
 
-    /// This will update the commit that this points to (the virtual reference in virtual_branches.toml) as well as update of create a real git reference.
-    /// If this points to a change id, it's a noop operation. In practice, moving forward, new CommitOrChangeId entries will always be CommitId and ChangeId may only appear in deserialized data.
-    pub fn set_head<T>(&mut self, head: T, repo: &gix::Repository) -> Result<Option<BString>>
+    /// This will update the commit that real git reference points to, so it points to `target`,
+    /// as well as the cached data in this instance.
+    /// Returns the full reference name like `refs/heads/name`.
+    /// If this points to a change id, it's a noop operation. In practice, moving forward, new
+    /// `CommitOrChangeId` entries will always be CommitId and ChangeId may only appear in deserialized data.
+    pub fn set_head<T>(&mut self, target: T, repo: &gix::Repository) -> Result<Option<BString>>
     where
         T: Into<CommitOrChangeId> + Clone,
     {
-        let refname = self.set_real_reference(repo, &head)?;
-        self.head = head.into();
+        let refname = self.set_real_reference(repo, &target)?;
+        self.head = target.into();
         Ok(refname)
     }
 
@@ -165,10 +168,7 @@ impl StackBranch {
     }
 
     pub fn delete_reference(&self, repo: &gix::Repository) -> Result<()> {
-        let oid = match self.head.clone() {
-            CommitOrChangeId::CommitId(id) => gix::ObjectId::from_str(&id)?,
-            CommitOrChangeId::ChangeId(_) => return Ok(()), // noop
-        };
+        let oid = self.head_oid(repo)?;
         let current_name: BString = qualified_reference_name(self.name()).into();
         if let Some(reference) = repo.try_find_reference(&current_name)? {
             let delete = RefEdit {
@@ -190,10 +190,7 @@ impl StackBranch {
         }
         let current_name: BString = qualified_reference_name(self.name()).into();
 
-        let oid = match self.head.clone() {
-            CommitOrChangeId::CommitId(id) => gix::ObjectId::from_str(&id)?,
-            CommitOrChangeId::ChangeId(_) => return Ok(()), // noop
-        };
+        let oid = self.head_oid(repo)?;
 
         if let Some(reference) = repo.try_find_reference(&current_name)? {
             let delete = RefEdit {
@@ -314,12 +311,7 @@ impl StackBranch {
         let merge_base = stack.merge_base(ctx)?.to_git2();
 
         let gix_repo = repo.to_gix()?;
-        let head_commit = commit_by_oid_or_change_id(
-            &self.head,
-            repo,
-            stack.head(&gix_repo)?.to_git2(),
-            merge_base,
-        );
+        let head_commit = gix_repo.find_commit(self.head_oid(&gix_repo)?);
         if head_commit.is_err() {
             return Ok(BranchCommits {
                 local_commits: vec![],
@@ -331,18 +323,22 @@ impl StackBranch {
 
         // Find the previous head in the stack - if it is not archived, use it as base
         // Otherwise use the merge base
-        let stack_head = stack.head(&gix_repo)?.to_git2();
         let previous_head = stack
             .branch_predacessor(self)
             .filter(|predacessor| !predacessor.archived)
             .map_or(merge_base, |predacessor| {
-                commit_by_oid_or_change_id(&predacessor.head, repo, stack_head, merge_base)
-                    .map(|commit| commit.id())
+                predacessor
+                    .head_oid(&gix_repo)
+                    .map(|x| x.to_git2())
                     .unwrap_or(merge_base)
             });
 
         let local_patches = repo
-            .log(head_commit, LogUntil::Commit(previous_head), false)?
+            .log(
+                head_commit.to_git2(),
+                LogUntil::Commit(previous_head),
+                false,
+            )?
             .into_iter()
             .rev()
             .collect_vec();

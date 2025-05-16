@@ -24,7 +24,6 @@
 	type Props = {
 		isUncommitted: boolean;
 		trigger?: HTMLElement;
-		isBinary?: boolean;
 		unSelectChanges: (changes: TreeChange[]) => void;
 	};
 
@@ -42,7 +41,7 @@
 		);
 	}
 
-	const { trigger, isBinary = false, unSelectChanges, isUncommitted }: Props = $props();
+	const { trigger, unSelectChanges, isUncommitted }: Props = $props();
 	const [stackService, project] = inject(StackService, Project);
 	const userSettings = getContextStoreBySymbol<Settings, Writable<Settings>>(SETTINGS);
 
@@ -110,7 +109,7 @@
 			<ContextMenuSection>
 				{#if item.changes.length > 0}
 					{@const changes = item.changes}
-					{#if !isBinary && isUncommitted}
+					{#if isUncommitted}
 						<ContextMenuItem
 							label="Discard changes"
 							onclick={() => {
@@ -179,9 +178,7 @@
 			</ContextMenuSection>
 		{:else}
 			<ContextMenuSection>
-				<p class="text-13">
-					{'Woops! Malformed data :('}
-				</p>
+				<p class="text-13">'Woops! Malformed data :(</p>
 			</ContextMenuSection>
 		{/if}
 	{/snippet}
@@ -202,12 +199,13 @@
 					Are you sure you want to discard the changes<br />to the following files:
 				</p>
 				<ul class="file-list">
-					{#each changes as change}
+					{#each changes as change, i}
 						<FileListItem
 							filePath={change.path}
 							fileStatus={computeChangeStatus(change)}
 							clickable={false}
 							listMode="list"
+							isLast={i === changes.length - 1}
 						/>
 					{/each}
 				</ul>
@@ -217,9 +215,7 @@
 				</span>?
 			{/if}
 		{:else}
-			<p class="text-13">
-				{'Woops! Malformed data :('}
-			</p>
+			<p class="text-13">Woops! Malformed data :(</p>
 		{/if}
 	{/snippet}
 	{#snippet controls(close, item)}
@@ -277,10 +273,12 @@
 		color: var(--clr-text-2);
 	}
 	.file-list {
-		padding: 4px 0;
+		display: flex;
+		flex-direction: column;
 		border-radius: var(--radius-m);
 		overflow: hidden;
-		background-color: var(--clr-bg-2);
+		background-color: var(--clr-bg-1);
+		border: 1px solid var(--clr-border-2);
 		margin-top: 12px;
 	}
 	.radio-aditional-info {

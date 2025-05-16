@@ -17,8 +17,12 @@ export class DiffService {
 
 	getDiff(projectId: string, change: TreeChange) {
 		const { getDiff } = this.api.endpoints;
-		const result = $derived(getDiff.useQuery({ projectId, change }));
-		return result;
+		return getDiff.useQuery({ projectId, change });
+	}
+
+	async fetchDiff(projectId: string, change: TreeChange) {
+		const { getDiff } = this.api.endpoints;
+		return await getDiff.fetch({ projectId, change });
 	}
 
 	getChanges(projectId: string, changes: TreeChange[]) {
@@ -27,6 +31,21 @@ export class DiffService {
 		return getDiff.useQueries(args, {
 			transform: (data, args): ChangeDiff => ({ path: args.change.path, diff: data })
 		});
+	}
+
+	async fetchChanges(projectId: string, changes: TreeChange[]): Promise<ChangeDiff[]> {
+		const args = changes.map((change) => ({ projectId, change }));
+		const responses = await Promise.all(
+			args.map((arg) =>
+				this.api.endpoints.getDiff.fetch(arg, {
+					transform: (diff, args) => ({
+						path: args.change.path,
+						diff
+					})
+				})
+			)
+		);
+		return responses.map((response) => response.data).filter((diff) => diff !== undefined);
 	}
 }
 function injectEndpoints(api: ClientState['backendApi']) {

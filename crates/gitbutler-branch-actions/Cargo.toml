@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 tracing.workspace = true
-anyhow = "1.0.95"
+anyhow = "1.0.98"
 git2.workspace = true
 gix = { workspace = true, features = ["blob-diff", "revision", "merge"] }
 tokio.workspace = true
@@ -52,3 +52,6 @@ gitbutler-workspace.workspace = true
 gix = { workspace = true, features = [] }
 glob = "0.3.2"
 tempfile.workspace = true
+gitbutler-git = { workspace = true, features = [
+    "test-askpass-path",
+] } # Runtime test dependency

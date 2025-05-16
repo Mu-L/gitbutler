@@ -9,48 +9,47 @@ import { isStr } from '@gitbutler/ui/utils/string';
 import { isErrorlike } from '@gitbutler/ui/utils/typeguards';
 
 export interface ParsedError {
-	message?: string;
-	parsedError?: string;
+	message: string;
+	name?: string;
+	code?: string;
+	ignored?: boolean;
+	description?: string;
 }
 
 export function isParsedError(something: unknown): something is ParsedError {
 	return (
 		typeof something === 'object' &&
 		something !== null &&
-		('message' in something || 'parsedError' in something)
+		'message' in something &&
+		typeof something.message === 'string'
 	);
 }
 
 export function parseError(error: unknown): ParsedError {
-	if (isTitledError(error)) {
-		return parseError(error.error);
-	}
-
-	if (isParsedError(error)) {
-		return error;
-	}
-
 	if (isStr(error)) {
 		return { message: error };
 	}
 
 	if (error instanceof PromiseRejectionEvent && isTauriCommandError(error.reason)) {
-		return { parsedError: error.reason.message };
+		return { message: error.reason.message };
 	}
 
 	if (isPromiseRejection(error)) {
 		return {
-			message: 'A promise had an unhandled exception.',
-			parsedError: JSON.stringify(error.reason, null, 2)
+			name: 'A promise had an unhandled exception.',
+			message: String(error.reason)
 		};
 	}
 
-	if (isTauriCommandError(error) && error.code && error.code in KNOWN_ERRORS) {
-		return { message: KNOWN_ERRORS[error.code], parsedError: error.message };
+	if (isTauriCommandError(error)) {
+		if (error.code && error.code in KNOWN_ERRORS)
+			return { description: KNOWN_ERRORS[error.code], message: error.message };
+
+		return { message: error.message, code: error.code };
 	}
 
 	if (isReduxActionError(error)) {
-		return { parsedError: error.error + '\n\n' + error.payload };
+		return { message: error.error + '\n\n' + error.payload };
 	}
 
 	if (isHttpError(error)) {
@@ -58,34 +57,14 @@ export function parseError(error: unknown): ParsedError {
 		// prevented using `navigator.onLine` to avoid making requests when
 		// working offline.
 		if (error.status === 500 && error.message === 'Load failed') {
-			return { message: undefined, parsedError: undefined };
+			return { message: error.message, ignored: true };
 		}
-		return { parsedError: error.message };
+		return { message: error.message };
 	}
 
 	if (isErrorlike(error)) {
-		return { parsedError: error.message };
+		return { message: error.message };
 	}
 
-	return { parsedError: JSON.stringify(error, null, 2) };
-}
-
-export type TitledError = {
-	title: string;
-	error: unknown;
-};
-
-export function isTitledError(error: unknown): error is TitledError {
-	return (
-		typeof error === 'object' &&
-		error !== null &&
-		'title' in error &&
-		typeof error.title === 'string' &&
-		error.title.length > 0 &&
-		(error as any).error !== undefined
-	);
-}
-
-export function createTitledError(title: string, error: unknown): TitledError {
-	return { title, error };
+	return { message: JSON.stringify(error, null, 2) };
 }

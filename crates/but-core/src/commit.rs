@@ -1,7 +1,10 @@
+use std::{collections::HashSet, path::PathBuf};
+
 use crate::Commit;
-use anyhow::Context;
+use anyhow::{Context, bail};
 use bstr::{BString, ByteSlice};
 use gix::prelude::ObjectIdExt;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// A collection of all the extra information we keep in the headers of a commit.
@@ -137,6 +140,9 @@ impl From<&HeadersV2> for Vec<(BString, BString)> {
 }
 
 /// When commits are in conflicting state, they store various trees which to help deal with the conflict.
+///
+/// This also includes variant that represents the blob which contains the
+/// conflicted information.
 #[derive(Debug, Copy, Clone)]
 pub enum TreeKind {
     /// Our tree that caused a conflict during the merge.
@@ -147,6 +153,8 @@ pub enum TreeKind {
     Base,
     /// The tree that resulted from the merge with auto-resolution enabled.
     AutoResolution,
+    /// The information about what is conflicted.
+    ConflictFiles,
 }
 
 impl TreeKind {
@@ -157,6 +165,7 @@ impl TreeKind {
             TreeKind::Theirs => ".conflict-side-1",
             TreeKind::Base => ".conflict-base-0",
             TreeKind::AutoResolution => ".auto-resolution",
+            TreeKind::ConflictFiles => ".conflict-files",
         }
     }
 }
@@ -208,16 +217,21 @@ impl<'repo> Commit<'repo> {
         self.headers().is_some_and(|hdr| hdr.is_conflicted())
     }
 
-    /// Return the hash of *our* tree, even if this commit is conflicted.
-    pub fn tree_id(&self) -> anyhow::Result<gix::Id<'repo>> {
-        Ok(self
-            .tree_id_by_kind(TreeKind::Ours)?
-            .expect("our tree is always available"))
+    /// If the commit is conflicted, then it returns the auto-resolution tree,
+    /// otherwise it returns the commit's tree.
+    ///
+    /// Most of the time this is what you want to use when diffing or
+    /// displaying the commit to the user.
+    pub fn tree_id_or_auto_resolution(&self) -> anyhow::Result<gix::Id<'repo>> {
+        self.tree_id_or_kind(TreeKind::AutoResolution)
     }
 
-    /// Return the tree of the given `kind`, or `None` if no such tree exists as this instance is *not* conflicted.
-    /// If `kind` is [`TreeKind::Ours`] one can always expect `Some()` tree.
-    pub fn tree_id_by_kind(&self, kind: TreeKind) -> anyhow::Result<Option<gix::Id<'repo>>> {
+    /// If the commit is conflicted, then return the particular conflict-tree
+    /// specified by `kind`, otherwise return the commit's tree.
+    ///
+    /// Most of the time, you will probably want to use [`Self::tree_id_or_auto_resolution()`]
+    /// instead.
+    pub fn tree_id_or_kind(&self, kind: TreeKind) -> anyhow::Result<gix::Id<'repo>> {
         Ok(if self.is_conflicted() {
             let our_tree = self
                 .inner
@@ -228,23 +242,74 @@ impl<'repo> Commit<'repo> {
                 .find_entry(kind.as_tree_entry_name())
                 .with_context(|| format!("Unexpected tree in conflicting commit {}", self.id))?
                 .id();
-            Some(our_tree)
-        } else if matches!(kind, TreeKind::Ours) {
-            Some(self.inner.tree.attach(self.id.repo))
+            our_tree
         } else {
-            None
+            self.inner.tree.attach(self.id.repo)
         })
-    }
-
-    /// Just like [`Self::tree_id_by_kind()`], but automatically return our tree if this instance isn't conflicted.
-    pub fn tree_id_by_kind_or_ours(&self, kind: TreeKind) -> anyhow::Result<gix::Id<'repo>> {
-        Ok(self
-            .tree_id_by_kind(kind)?
-            .unwrap_or_else(|| self.inner.tree.attach(self.id.repo)))
     }
 
     /// Return our custom headers, of present.
     pub fn headers(&self) -> Option<HeadersV2> {
         HeadersV2::try_from_commit(&self.inner)
+    }
+}
+
+/// Conflict specific details
+impl Commit<'_> {
+    /// Obtains the conflict entries of a conflicted commit if the commit is
+    /// conflicted, otherwise returns None.
+    pub fn conflict_entries(&self) -> anyhow::Result<Option<ConflictEntries>> {
+        let repo = self.id.repo;
+
+        if !self.is_conflicted() {
+            return Ok(None);
+        }
+
+        let tree = repo.find_tree(self.tree)?;
+        let Some(conflicted_entries_blob) =
+            tree.find_entry(TreeKind::ConflictFiles.as_tree_entry_name())
+        else {
+            bail!(
+                "There has been a malformed conflicted commit, unable to find the conflicted files"
+            );
+        };
+        let conflicted_entries_blob = conflicted_entries_blob.object()?.into_blob();
+        let conflicted_entries: ConflictEntries =
+            toml::from_str(&conflicted_entries_blob.data.as_bstr().to_str_lossy())?;
+
+        Ok(Some(conflicted_entries))
+    }
+}
+
+/// Represents what was causing a particular commit to conflict when rebased.
+#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictEntries {
+    /// The ancestors that were conflicted
+    pub ancestor_entries: Vec<PathBuf>,
+    /// The ours side entries that were conflicted
+    pub our_entries: Vec<PathBuf>,
+    /// The theirs side entries that were conflicted
+    pub their_entries: Vec<PathBuf>,
+}
+
+impl ConflictEntries {
+    /// If there are any conflict entries
+    pub fn has_entries(&self) -> bool {
+        !self.ancestor_entries.is_empty()
+            || !self.our_entries.is_empty()
+            || !self.their_entries.is_empty()
+    }
+
+    /// The total count of conflicted entries
+    pub fn total_entries(&self) -> usize {
+        let set = self
+            .ancestor_entries
+            .iter()
+            .chain(self.our_entries.iter())
+            .chain(self.their_entries.iter())
+            .collect::<HashSet<_>>();
+
+        set.len()
     }
 }

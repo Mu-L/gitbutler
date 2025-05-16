@@ -7,8 +7,12 @@ use super::*;
 fn integration() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+    )
+    .unwrap();
 
     let branch_name = {
         // make a remote branch
@@ -19,8 +23,7 @@ fn integration() {
 
         std::fs::write(repo.path().join("file.txt"), "first\n").unwrap();
         gitbutler_branch_actions::create_commit(ctx, stack_entry.id, "first", None).unwrap();
-        #[allow(deprecated)]
-        gitbutler_branch_actions::push_virtual_branch(ctx, stack_entry.id, false, None).unwrap();
+        gitbutler_branch_actions::stack::push_stack(ctx, stack_entry.id, false).unwrap();
 
         let branch = gitbutler_branch_actions::list_virtual_branches(ctx)
             .unwrap()
@@ -29,11 +32,19 @@ fn integration() {
             .find(|branch| branch.id == stack_entry.id)
             .unwrap();
 
-        let name = branch.upstream.unwrap().name;
+        let name = branch
+            .series
+            .first()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .upstream_reference
+            .as_ref()
+            .unwrap();
 
         gitbutler_branch_actions::unapply_stack(ctx, stack_entry.id).unwrap();
 
-        name
+        Refname::from_str(name).unwrap()
     };
 
     // checkout a existing remote branch
@@ -63,8 +74,7 @@ fn integration() {
 
     {
         // merge branch into master
-        #[allow(deprecated)]
-        gitbutler_branch_actions::push_virtual_branch(ctx, branch_id, false, None).unwrap();
+        gitbutler_branch_actions::stack::push_stack(ctx, branch_id, false).unwrap();
 
         let branch = gitbutler_branch_actions::list_virtual_branches(ctx)
             .unwrap()
@@ -118,8 +128,12 @@ fn no_conflicts() {
         repo.checkout(&"refs/heads/master".parse().unwrap());
     }
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+    )
+    .unwrap();
 
     let list_result = gitbutler_branch_actions::list_virtual_branches(ctx).unwrap();
     let branches = list_result.branches;
@@ -159,8 +173,12 @@ fn conflicts_with_uncommited() {
         repo.checkout(&"refs/heads/master".parse().unwrap());
     }
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+    )
+    .unwrap();
 
     // create a local branch that conflicts with remote
     {
@@ -205,8 +223,12 @@ fn conflicts_with_commited() {
         repo.checkout(&"refs/heads/master".parse().unwrap());
     }
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+    )
+    .unwrap();
 
     // create a local branch that conflicts with remote
     {
@@ -243,8 +265,12 @@ fn conflicts_with_commited() {
 fn from_default_target() {
     let Test { ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+    )
+    .unwrap();
 
     // branch should be created unapplied, because of the conflict
 
@@ -265,8 +291,12 @@ fn from_default_target() {
 fn from_non_existent_branch() {
     let Test { ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+    )
+    .unwrap();
 
     // branch should be created unapplied, because of the conflict
 
@@ -302,8 +332,12 @@ fn from_state_remote_branch() {
         repo.push();
     }
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+    )
+    .unwrap();
 
     let branch_id = gitbutler_branch_actions::create_virtual_branch_from_branch(
         ctx,
@@ -352,6 +386,7 @@ mod conflict_cases {
         gitbutler_branch_actions::set_base_branch(
             ctx,
             &"refs/remotes/origin/master".parse().unwrap(),
+            false,
         )
         .unwrap();
 

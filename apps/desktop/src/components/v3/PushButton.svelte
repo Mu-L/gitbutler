@@ -5,6 +5,7 @@
 		stackRequiresForcePush
 	} from '$lib/stacks/stack';
 	import { StackService } from '$lib/stacks/stackService.svelte';
+	import { TestId } from '$lib/testing/testIds';
 	import { UserService } from '$lib/user/userService';
 	import { getContext } from '@gitbutler/shared/context';
 	import Button from '@gitbutler/ui/Button.svelte';
@@ -48,15 +49,30 @@
 			stackInfoResult.current.isLoading ||
 			publishResult.current.isLoading
 	);
+
+	function getButtonTooltip() {
+		if (!hasThingsToPush) {
+			return 'No commits to push';
+		}
+		if (hasConflicts) {
+			return 'In order to push, please resolve any conflicted commits.';
+		}
+		if (multipleBranches) {
+			return 'Push all branches';
+		}
+
+		return undefined;
+	}
 </script>
 
 <div class="push-button" class:use-flex={!flex} style:flex>
 	<Button
+		testId={TestId.StackPushButton}
 		style="neutral"
 		wide
 		{loading}
 		disabled={!hasThingsToPush || hasConflicts}
-		tooltip={hasConflicts ? 'In order to push, please resolve any conflicted commits.' : undefined}
+		tooltip={getButtonTooltip()}
 		onclick={push}
 	>
 		{requiresForce ? 'Force push' : multipleBranches ? 'Push all' : 'Push'}

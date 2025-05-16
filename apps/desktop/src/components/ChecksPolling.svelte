@@ -7,7 +7,6 @@
 	import type { ComponentColorType } from '@gitbutler/ui/utils/colorTypes';
 
 	type Props = {
-		stackId: string;
 		branchName: string;
 		hasChecks?: boolean;
 		isFork?: boolean;
@@ -23,14 +22,7 @@
 		tooltip?: string;
 	};
 
-	let {
-		stackId,
-		branchName,
-		isFork,
-		isMerged,
-		hasChecks = $bindable(),
-		size = 'tag'
-	}: Props = $props();
+	let { branchName, isFork, isMerged, hasChecks = $bindable(), size = 'tag' }: Props = $props();
 
 	const [forge] = inject(DefaultForgeFactory);
 
@@ -67,7 +59,7 @@
 
 	const checksResult = $derived(
 		enabled
-			? checksService?.get(stackId, branchName, { subscriptionOptions: { pollingInterval } })
+			? checksService?.get(branchName, { subscriptionOptions: { pollingInterval } })
 			: undefined
 	);
 
@@ -150,6 +142,9 @@
 	style={checksTagInfo.style}
 	kind={checksTagInfo.icon === 'success-small' ? 'solid' : 'soft'}
 	tooltip={checksTagInfo.tooltip}
+	onclick={() => {
+		checksService?.fetch(branchName, { forceRefetch: true });
+	}}
 >
 	{checksTagInfo.text}
 </Badge>

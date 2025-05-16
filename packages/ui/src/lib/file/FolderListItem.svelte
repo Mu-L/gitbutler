@@ -18,6 +18,7 @@
 		ontoggle?: (expanded: boolean) => void;
 		onclick?: (e: MouseEvent) => void;
 		onkeydown?: (e: KeyboardEvent) => void;
+		testId?: string;
 	}
 
 	let {
@@ -30,7 +31,8 @@
 		oncheck,
 		ontoggle,
 		onclick,
-		onkeydown
+		onkeydown,
+		testId
 	}: Props = $props();
 
 	let isFolderExpanded = $state(isExpanded);
@@ -41,6 +43,7 @@
 </script>
 
 <div
+	data-testid={testId}
 	class="folder-list-item"
 	role="presentation"
 	tabindex="-1"
@@ -85,7 +88,7 @@
 
 		<Icon name="folder" />
 	</div>
-	<p class="text-12 text-semibold">{name}</p>
+	<p class="text-12 text-semibold truncate">{name}</p>
 </div>
 
 <style lang="postcss">
@@ -107,7 +110,6 @@
 		align-items: center;
 		gap: 6px;
 		color: var(--clr-text-2);
-		height: 100%;
 	}
 
 	.folder-list-item__arrow {

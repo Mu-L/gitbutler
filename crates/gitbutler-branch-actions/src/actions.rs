@@ -18,9 +18,8 @@ use crate::{
     remote::{RemoteBranchData, RemoteCommit},
     VirtualBranchesExt,
 };
-use anyhow::{bail, Context, Result};
-use but_workspace::commit_engine::DiffSpec;
-use but_workspace::{commit_engine, StackEntry};
+use anyhow::{Context, Result};
+use but_workspace::{commit_engine, stack_heads_info, ui, DiffSpec};
 use gitbutler_branch::{BranchCreateRequest, BranchUpdateRequest};
 use gitbutler_command_context::CommandContext;
 use gitbutler_diff::DiffByPathMap;
@@ -101,17 +100,17 @@ pub fn list_virtual_branches_cached(
 pub fn create_virtual_branch(
     ctx: &CommandContext,
     create: &BranchCreateRequest,
-) -> Result<StackEntry> {
+) -> Result<ui::StackEntry> {
     ctx.verify()?;
     assure_open_workspace_mode(ctx).context("Creating a branch requires open workspace mode")?;
     let mut guard = ctx.project().exclusive_worktree_access();
     let branch_manager = ctx.branch_manager();
     let stack = branch_manager.create_virtual_branch(create, guard.write_permission())?;
     let repo = ctx.gix_repo()?;
-    Ok(StackEntry {
+    Ok(ui::StackEntry {
         id: stack.id,
-        branch_names: stack.heads(false).into_iter().map(Into::into).collect(),
-        tip: stack.head(&repo)?,
+        heads: stack_heads_info(&stack, &repo)?,
+        tip: stack.head_oid(&repo)?,
     })
 }
 
@@ -131,17 +130,22 @@ pub fn delete_local_branch(
             .source_refname
             .as_ref()
             .is_some_and(|source_refname| source_refname == refname)
+            || stack.heads(false).contains(&given_name)
     });
 
-    if let Some(stack) = stack {
+    if let Some(mut stack) = stack {
         // Disallow deletion of branches that are applied in workspace
         if stack.in_workspace {
             return Err(anyhow::anyhow!(
                 "Cannot delete a branch that is applied in workspace"
             ));
         }
-        // Deletes the virtual branch entry from the application state
-        handle.delete_branch_entry(&stack.id)?;
+        // Delete the branch head or if it is the only one, delete the entire stack
+        if stack.heads.len() > 1 {
+            stack.remove_branch(ctx, given_name.clone())?;
+        } else {
+            handle.delete_branch_entry(&stack.id)?;
+        }
     }
 
     // If a branch reference for this can be found, delete it
@@ -158,13 +162,17 @@ pub fn list_commit_files(
     crate::file::list_commit_files(ctx.repo(), commit_oid)
 }
 
-pub fn set_base_branch(ctx: &CommandContext, target_branch: &RemoteRefname) -> Result<BaseBranch> {
+pub fn set_base_branch(
+    ctx: &CommandContext,
+    target_branch: &RemoteRefname,
+    stash_uncommitted: bool,
+) -> Result<BaseBranch> {
     let mut guard = ctx.project().exclusive_worktree_access();
     let _ = ctx.create_snapshot(
         SnapshotDetails::new(OperationKind::SetBaseBranch),
         guard.write_permission(),
     );
-    base::set_base_branch(ctx, target_branch)
+    base::set_base_branch(ctx, target_branch, stash_uncommitted)
 }
 
 pub fn set_target_push_remote(ctx: &CommandContext, push_remote: &str) -> Result<()> {
@@ -321,19 +329,14 @@ fn amend_with_commit_engine(
 ) -> Result<git2::Oid> {
     let mut guard = ctx.project().exclusive_worktree_access();
 
-    let vb_state = ctx.project().virtual_branches();
-    let stack = vb_state.get_stack(stack_id)?;
-
-    if stack.upstream.is_some() && !stack.allow_rebasing {
-        // amending to a pushed head commit will cause a force push that is not allowed
-        bail!("force-push is not allowed");
-    }
-
     let outcome = commit_engine::create_commit_and_update_refs_with_project(
         &ctx.gix_repo()?,
         ctx.project(),
         Some(stack_id),
-        commit_engine::Destination::AmendCommit(commit_oid.to_gix()),
+        commit_engine::Destination::AmendCommit {
+            commit_id: commit_oid.to_gix(),
+            new_message: None,
+        },
         None,
         worktree_changes,
         3, // for the old API this is hardcoded
@@ -428,18 +431,6 @@ pub fn reset_virtual_branch(
         guard.write_permission(),
     );
     vbranch::reset_branch(ctx, stack_id, target_commit_oid)
-}
-
-#[deprecated(note = "use gitbutler_branch_actions::stack::push_stack instead")]
-pub fn push_virtual_branch(
-    ctx: &CommandContext,
-    stack_id: StackId,
-    with_force: bool,
-    askpass: Option<Option<StackId>>,
-) -> Result<vbranch::PushResult> {
-    ctx.verify()?;
-    assure_open_workspace_mode(ctx).context("Pushing a branch requires open workspace mode")?;
-    vbranch::push(ctx, stack_id, with_force, askpass)
 }
 
 pub fn find_git_branches(ctx: &CommandContext, branch_name: &str) -> Result<Vec<RemoteBranchData>> {
@@ -560,7 +551,7 @@ pub fn get_uncommited_files(ctx: &CommandContext) -> Result<Vec<RemoteBranchFile
 }
 
 /// Like [`get_uncommited_files()`], but returns a type that can be re-used with
-/// [`crate::list_virtual_branches()`].
+/// [`list_virtual_branches()`].
 pub fn get_uncommited_files_reusable(ctx: &CommandContext) -> Result<DiffByPathMap> {
     let guard = ctx.project().exclusive_worktree_access();
     crate::branch::get_uncommited_files_raw(ctx, guard.read_permission())

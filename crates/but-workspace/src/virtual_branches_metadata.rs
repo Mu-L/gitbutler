@@ -63,7 +63,7 @@ impl Snapshot {
 ///
 /// The idea is that it's forgiving and easy to use, while helping to eventually migrate to a database.
 pub struct VirtualBranchesTomlMetadata {
-    // What is currently in memory for query or edits.
+    // What is currently in memory for query or editing.
     snapshot: Snapshot,
 }
 
@@ -83,6 +83,18 @@ impl VirtualBranchesTomlMetadata {
     /// We will write changes to it on drop.
     pub fn path(&self) -> &Path {
         &self.snapshot.path
+    }
+}
+
+/// Mostly used in testing, and it's fine as it's intermediate, and we are very practical here.
+impl VirtualBranchesTomlMetadata {
+    /// Return a mutable snapshot of the underlying data. Useful for testing mainly.
+    pub fn data_mut(&mut self) -> &mut VirtualBranchesState {
+        &mut self.snapshot.content
+    }
+    /// Return a snapshot of the underlying data. Useful for working around (intended) limitations of the RefMetadata trait.
+    pub fn data(&self) -> &VirtualBranchesState {
+        &self.snapshot.content
     }
 }
 
@@ -440,6 +452,13 @@ pub struct VBTomlMetadataHandle<T> {
     // other storage backends like database may have similar handles to avoid searches by name.
     stack_id: RefCell<Option<StackId>>,
     value: T,
+}
+
+impl<T> VBTomlMetadataHandle<T> {
+    /// Return the stack_id of the underlying stack if there is one.
+    pub fn stack_id(&self) -> Option<StackId> {
+        *self.stack_id.borrow()
+    }
 }
 
 impl<T> AsRef<FullNameRef> for VBTomlMetadataHandle<T> {

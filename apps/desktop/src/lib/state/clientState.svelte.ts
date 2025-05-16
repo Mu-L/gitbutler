@@ -10,6 +10,7 @@ import { FLUSH, PAUSE, PERSIST, persistReducer, PURGE, REGISTER, REHYDRATE } fro
 import persistStore from 'redux-persist/lib/persistStore';
 import type { PostHogWrapper } from '$lib/analytics/posthog';
 import type { Tauri } from '$lib/backend/tauri';
+import type { SettingsService } from '$lib/config/appSettingsV2';
 import type { GitHubClient } from '$lib/forge/github/githubClient';
 import type { GitLabClient } from '$lib/forge/gitlab/gitlabClient.svelte';
 import type { IrcClient } from '$lib/irc/ircClient.svelte';
@@ -65,7 +66,8 @@ export class ClientState {
 		gitHubClient: GitHubClient,
 		gitLabClient: GitLabClient,
 		ircClient: IrcClient,
-		posthog: PostHogWrapper
+		posthog: PostHogWrapper,
+		settingsService: SettingsService
 	) {
 		const butlerMod = butlerModule({
 			// Reactive loop without nested function.
@@ -85,7 +87,8 @@ export class ClientState {
 			backendApi: this.backendApi,
 			githubApi: this.githubApi,
 			gitlabApi: this.gitlabApi,
-			posthog
+			posthog,
+			settingsService
 		});
 
 		this.store = store;
@@ -126,6 +129,7 @@ function createStore(params: {
 	githubApi: GitHubApi;
 	gitlabApi: GitLabApi;
 	posthog: PostHogWrapper;
+	settingsService: SettingsService;
 }) {
 	const {
 		tauri,
@@ -135,7 +139,8 @@ function createStore(params: {
 		backendApi,
 		githubApi,
 		gitlabApi,
-		posthog
+		posthog,
+		settingsService
 	} = params;
 	const reducer = combineSlices(
 		// RTK Query API for the back end.
@@ -154,7 +159,7 @@ function createStore(params: {
 		middleware: (getDefaultMiddleware) => {
 			return getDefaultMiddleware({
 				thunk: {
-					extraArgument: { tauri, gitHubClient, gitLabClient, ircClient, posthog }
+					extraArgument: { tauri, gitHubClient, gitLabClient, ircClient, posthog, settingsService }
 				},
 				serializableCheck: {
 					ignoredActions: [FLUSH, REHYDRATE, PAUSE, PERSIST, PURGE, REGISTER]
@@ -183,12 +188,17 @@ export function createBackendApi(butlerMod: ReturnType<typeof butlerModule>) {
 	)({
 		reducerPath: 'backend',
 		tagTypes: Object.values(ReduxTag),
+		invalidationBehavior: 'immediately',
 		baseQuery: tauriBaseQuery,
 		endpoints: (_) => {
 			return {};
 		}
 	});
 }
+
+// Default cache expiration for unused items is 60 seconds. This is too little
+// for forge data.
+const KEEP_UNUSED_SECONDS = 24 * 60 * 60;
 
 export function createGitHubApi(butlerMod: ReturnType<typeof butlerModule>) {
 	return buildCreateApi(
@@ -197,9 +207,11 @@ export function createGitHubApi(butlerMod: ReturnType<typeof butlerModule>) {
 	)({
 		reducerPath: 'github',
 		tagTypes: Object.values(ReduxTag),
+		invalidationBehavior: 'immediately',
 		baseQuery: tauriBaseQuery,
 		refetchOnFocus: true,
 		refetchOnReconnect: true,
+		keepUnusedDataFor: KEEP_UNUSED_SECONDS,
 		endpoints: (_) => {
 			return {};
 		}
@@ -213,9 +225,11 @@ export function createGitLabApi(butlerMod: ReturnType<typeof butlerModule>) {
 	)({
 		reducerPath: 'gitlab',
 		tagTypes: Object.values(ReduxTag),
+		invalidationBehavior: 'immediately',
 		baseQuery: tauriBaseQuery,
 		refetchOnFocus: true,
 		refetchOnReconnect: true,
+		keepUnusedDataFor: KEEP_UNUSED_SECONDS,
 		endpoints: (_) => {
 			return {};
 		}

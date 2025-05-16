@@ -6,17 +6,13 @@
 		details: Snippet;
 		selected?: boolean;
 		onclick?: () => void;
+		testId?: string;
 	};
 
-	const { content, details, selected = $bindable(), onclick }: Props = $props();
+	const { content, details, selected, onclick, testId }: Props = $props();
 </script>
 
-<div
-	role="presentation"
-	{onclick}
-	class="branches-list-card"
-	class:branches-list-card_selected={selected}
->
+<div data-testid={testId} role="presentation" {onclick} class="branches-list-card" class:selected>
 	<div class="branches-list-card__content">
 		{@render content()}
 	</div>
@@ -31,15 +27,33 @@
 <style class="postcss">
 	/* TARGET CARD */
 	.branches-list-card {
+		position: relative;
 		cursor: pointer;
 		display: flex;
 		flex-direction: column;
 		gap: 10px;
 		background-color: var(--clr-bg-1);
-		padding: 14px 14px 14px 16px;
+		padding: 14px;
 
 		&:not(:last-child) {
 			border-bottom: 1px solid var(--clr-border-2);
+		}
+
+		&::after {
+			content: '';
+			position: absolute;
+			border-radius: 0 var(--radius-m) var(--radius-m) 0;
+			top: 12px;
+			left: 0;
+			width: 5px;
+			height: calc(100% - 24px);
+			background-color: var(--clr-selected-in-focus-element);
+			transform: translateX(-100%);
+			transition: transform var(--transition-medium);
+		}
+
+		&:not(.selected):hover {
+			background-color: var(--clr-bg-1-muted);
 		}
 	}
 
@@ -63,7 +77,11 @@
 		color: var(--clr-text-2);
 	}
 
-	.branches-list-card_selected {
-		background-color: rgb(177, 153, 200);
+	.selected {
+		background-color: var(--clr-bg-1-muted);
+
+		&::after {
+			transform: translateX(0);
+		}
 	}
 </style>

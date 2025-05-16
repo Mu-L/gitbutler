@@ -148,7 +148,7 @@ mod utils;
 /// `common_merge_base` is expected to be the merge base that all `stacks` have in common, as would be created with [gix::Repository::merge_base_octopus()].
 pub fn workspace_stacks_to_input_stacks(
     repo: &gix::Repository,
-    stacks: &[but_workspace::StackEntry],
+    stacks: &[but_workspace::ui::StackEntry],
     common_merge_base: gix::ObjectId,
 ) -> anyhow::Result<Vec<InputStack>> {
     let mut out = Vec::new();
@@ -162,7 +162,7 @@ pub fn workspace_stacks_to_input_stacks(
         )?;
         for commit_id in commit_ids {
             let commit = repo.find_commit(commit_id)?;
-            let (tree_changes, _) = but_core::diff::commit_changes(
+            let (tree_changes, _) = but_core::diff::tree_changes(
                 repo,
                 commit.parent_ids().next().map(|id| id.detach()),
                 commit_id,

@@ -17,12 +17,12 @@ pub struct Workspace {
     pub ref_info: RefInfo,
 
     /// An array entry for each parent of the *workspace commit* the last time we saw it.
-    /// The first parent, and always the first parent, could have a tip that is named `Self::target_ref`,
-    /// and if so it's not meant to be visible when asking for stacks.
+    /// The first parent, and always the first parent, could have a tip named `Self::target_ref`,
+    /// and if so, it's not meant to be visible when asking for stacks.
     pub stacks: Vec<WorkspaceStack>,
 
     /// The name of the reference to integrate with, if present.
-    /// Fetch its metadata for more inforamtion.
+    /// Fetch its metadata for more information.
     ///
     /// If there is no target name, this is a local workspace (and if no global target is set).
     /// Note that even though this is per workspace, the implementation can fill in global information at will.
@@ -59,7 +59,7 @@ impl Workspace {
 }
 
 /// Metadata about branches, associated with any Git branch.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub struct Branch {
     /// Standard data we want to know about any ref.
     pub ref_info: RefInfo,
@@ -73,7 +73,7 @@ pub struct Branch {
 ///
 /// It allows to keep track of when it changed, but also if we created it initially, a useful
 /// bit of information.
-#[derive(Default, Debug, Clone, PartialEq)]
+#[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub struct RefInfo {
     /// The time of creation, *if we created the reference*.
     pub created_at: Option<gix::date::Time>,
@@ -127,7 +127,7 @@ impl WorkspaceStack {
 }
 
 /// Metadata about branches, associated with any Git branch.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub struct Review {
     /// The number for the PR that was associated with this branch.
     pub pull_request: Option<usize>,

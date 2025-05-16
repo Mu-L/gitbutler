@@ -1,34 +1,30 @@
 <script lang="ts">
 	import SidebarEntry from '$components/v3/SidebarEntry.svelte';
-	import { BranchListingDetails, type BranchListing } from '$lib/branches/branchListing';
+	import { type BranchListing, BranchListingDetails } from '$lib/branches/branchListing';
 	import { BranchService } from '$lib/branches/branchService.svelte';
 	import { GitConfigService } from '$lib/config/gitConfigService';
-	import { Project } from '$lib/project/project';
-	import { stackPath } from '$lib/routes/routes.svelte';
-	import { UiState } from '$lib/state/uiState.svelte';
 	import { UserService } from '$lib/user/userService';
 	import { inject } from '@gitbutler/shared/context';
 	import { gravatarUrlFromEmail } from '@gitbutler/ui/avatar/gravatar';
 	import type { PullRequest } from '$lib/forge/interface/types';
-	import { page } from '$app/state';
 
 	interface Props {
 		projectId: string;
 		branchListing: BranchListing;
 		prs: PullRequest[];
+		selected: boolean;
+		onclick: (args: { listing: BranchListing; pr?: PullRequest }) => void;
 	}
 
-	const { projectId, branchListing, prs }: Props = $props();
+	const { projectId, branchListing, prs, selected, onclick }: Props = $props();
 
 	const unknownName = 'unknown';
 	const unknownEmail = 'example@example.com';
 
-	const [userService, gitConfigService, project, branchService, uiState] = inject(
+	const [userService, gitConfigService, branchService] = inject(
 		UserService,
 		GitConfigService,
-		Project,
-		BranchService,
-		UiState
+		BranchService
 	);
 
 	const user = userService.user;
@@ -47,20 +43,6 @@
 
 	// If there are zero commits we should not show the author
 	const ownedByUser = $derived(branchListingDetails?.numberOfCommits === 0);
-
-	function onMouseDown() {
-		if (branchListing.stack?.inWorkspace) {
-			stackPath(project.id, branchListing.stack.id);
-		} else {
-			uiState.project(projectId).branchesSelection.set({ branchName: branchListing.name });
-		}
-	}
-
-	const selected = $derived(page.url.pathname === formatBranchURL(project, branchListing.name));
-
-	function formatBranchURL(project: Project, name: string) {
-		return `/${project.id}/branch/${encodeURIComponent(name)}`;
-	}
 
 	$effect(() => {
 		let canceled = false;
@@ -141,7 +123,7 @@
 		linesRemoved: branchListingDetails.linesRemoved
 	}}
 	onFirstSeen={() => (hasBeenSeen = true)}
-	{onMouseDown}
+	onclick={() => onclick({ listing: branchListing, pr: prs.at(0) })}
 	{selected}
 	{avatars}
 />

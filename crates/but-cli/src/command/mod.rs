@@ -1,9 +1,10 @@
 use anyhow::{Context, anyhow, bail};
 use but_core::UnifiedDiff;
-use but_workspace::commit_engine::{DiffSpec, HunkHeader};
-use gitbutler_project::Project;
+use but_workspace::{DiffSpec, HunkHeader, VirtualBranchesTomlMetadata};
+use gitbutler_project::{Project, ProjectId};
 use gix::bstr::{BString, ByteSlice};
 use std::path::Path;
+use tokio::sync::mpsc::unbounded_channel;
 
 pub(crate) const UI_CONTEXT_LINES: u32 = 3;
 
@@ -38,6 +39,10 @@ fn configured_repo(
         }
     }
     Ok(repo)
+}
+
+fn ref_metadata_toml(project: &Project) -> anyhow::Result<VirtualBranchesTomlMetadata> {
+    VirtualBranchesTomlMetadata::from_path(project.gb_dir().join("virtual_branches.toml"))
 }
 
 /// Operate like GitButler would in the future, on a Git repository and optionally with additional metadata as obtained
@@ -101,8 +106,8 @@ fn project_controller(
 pub fn parse_diff_spec(arg: &Option<String>) -> Result<Option<Vec<DiffSpec>>, anyhow::Error> {
     arg.as_deref()
         .map(|value| {
-            serde_json::from_str::<Vec<but_workspace::commit_engine::ui::DiffSpec>>(value)
-                .map(|diff_spec| diff_spec.into_iter().map(Into::into).collect())
+            serde_json::from_str::<Vec<but_workspace::DiffSpec>>(value)
+                .map(|diff_spec| diff_spec.into_iter().collect())
                 .map_err(|e| anyhow!("Failed to parse diff_spec: {}", e))
         })
         .transpose()
@@ -117,20 +122,36 @@ pub mod diff;
 pub mod stacks {
     use std::path::Path;
 
+    use crate::command::{debug_print, project_from_path, ref_metadata_toml};
     use but_settings::AppSettings;
     use but_workspace::{
-        BranchCommits, stack_branch_local_and_remote_commits, stack_branch_upstream_only_commits,
-        stack_branches,
+        StacksFilter, stack_branch_local_and_remote_commits, stack_branch_upstream_only_commits,
+        stack_branches, ui,
     };
     use gitbutler_command_context::CommandContext;
+    use gitbutler_stack::StackId;
 
-    use crate::command::{debug_print, project_from_path};
+    /// A collection of all the commits that are part of a branch.
+    #[derive(Debug, Clone, serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct BranchCommits {
+        /// The commits that are local and optionally remote.
+        pub local_and_remote: Vec<ui::Commit>,
+        /// The commits that are only at the remote.
+        pub upstream_commits: Vec<ui::UpstreamCommit>,
+    }
 
-    pub fn list(current_dir: &Path, use_json: bool) -> anyhow::Result<()> {
+    pub fn list(current_dir: &Path, use_json: bool, v3: bool) -> anyhow::Result<()> {
         let project = project_from_path(current_dir)?;
         let ctx = CommandContext::open(&project, AppSettings::default())?;
-        let repo = ctx.gix_repo()?;
-        let stacks = but_workspace::stacks(&ctx, &project.gb_dir(), &repo, Default::default())?;
+        let repo = ctx.gix_repo_for_merging_non_persisting()?;
+        let filter = StacksFilter::All;
+        let stacks = if v3 {
+            let meta = ref_metadata_toml(ctx.project())?;
+            but_workspace::stacks_v3(&repo, &meta, filter)
+        } else {
+            but_workspace::stacks(&ctx, &project.gb_dir(), &repo, filter)
+        }?;
         if use_json {
             let json = serde_json::to_string_pretty(&stacks)?;
             println!("{json}");
@@ -140,10 +161,23 @@ pub mod stacks {
         }
     }
 
-    pub fn branches(id: &str, current_dir: &Path, use_json: bool) -> anyhow::Result<()> {
+    pub fn details(id: StackId, current_dir: &Path, v3: bool) -> anyhow::Result<()> {
         let project = project_from_path(current_dir)?;
         let ctx = CommandContext::open(&project, AppSettings::default())?;
-        let branches = stack_branches(id.to_string(), &ctx)?;
+        let details = if v3 {
+            let meta = ref_metadata_toml(ctx.project())?;
+            let repo = ctx.gix_repo_for_merging_non_persisting()?;
+            but_workspace::stack_details_v3(id, &repo, &meta)
+        } else {
+            but_workspace::stack_details(&project.gb_dir(), id, &ctx)
+        }?;
+        debug_print(details)
+    }
+
+    pub fn branches(id: StackId, current_dir: &Path, use_json: bool) -> anyhow::Result<()> {
+        let project = project_from_path(current_dir)?;
+        let ctx = CommandContext::open(&project, AppSettings::default())?;
+        let branches = stack_branches(id, &ctx)?;
         if use_json {
             let json = serde_json::to_string_pretty(&branches)?;
             println!("{json}");
@@ -153,8 +187,108 @@ pub mod stacks {
         }
     }
 
+    /// Create a new stack containing only a branch with the given name.
+    fn create_stack_with_branch(
+        ctx: &CommandContext,
+        name: &str,
+        description: Option<&str>,
+    ) -> anyhow::Result<ui::StackEntry> {
+        let creation_request = gitbutler_branch::BranchCreateRequest {
+            name: Some(name.to_string()),
+            ..Default::default()
+        };
+        let stack_entry = gitbutler_branch_actions::create_virtual_branch(ctx, &creation_request)?;
+
+        if description.is_some() {
+            gitbutler_branch_actions::stack::update_branch_description(
+                ctx,
+                stack_entry.id,
+                name.to_string(),
+                description.map(ToOwned::to_owned),
+            )?;
+        }
+
+        Ok(stack_entry)
+    }
+
+    /// Add a branch to an existing stack.
+    fn add_branch_to_stack(
+        ctx: &CommandContext,
+        stack_id: StackId,
+        name: &str,
+        description: Option<&str>,
+        project: gitbutler_project::Project,
+        repo: &gix::Repository,
+    ) -> anyhow::Result<ui::StackEntry> {
+        let creation_request = gitbutler_branch_actions::stack::CreateSeriesRequest {
+            name: name.to_string(),
+            description: None,
+            target_patch: None,
+            preceding_head: None,
+        };
+
+        gitbutler_branch_actions::stack::create_branch(ctx, stack_id, creation_request)?;
+        let stack_entries =
+            but_workspace::stacks(ctx, &project.gb_dir(), repo, Default::default())?;
+
+        let stack_entry = stack_entries
+            .into_iter()
+            .find(|entry| entry.id == stack_id)
+            .ok_or_else(|| anyhow::anyhow!("Failed to find stack with ID: {stack_id}"))?;
+
+        if description.is_some() {
+            gitbutler_branch_actions::stack::update_branch_description(
+                ctx,
+                stack_entry.id,
+                name.to_string(),
+                description.map(ToOwned::to_owned),
+            )?;
+        }
+
+        Ok(stack_entry)
+    }
+
+    /// Create a new branch in the current project.
+    ///
+    /// If `id` is provided, it will be used to add the branch to an existing stack.
+    /// If `id` is not provided, a new stack will be created with the branch.
+    pub fn create_branch(
+        id: Option<StackId>,
+        name: &str,
+        description: Option<&str>,
+        current_dir: &Path,
+        use_json: bool,
+    ) -> anyhow::Result<()> {
+        let project = project_from_path(current_dir)?;
+        // Enable v3 feature flags for the command context
+        let app_settings = AppSettings {
+            feature_flags: but_settings::app_settings::FeatureFlags {
+                v3: true,
+                // Keep this off until it caught up at least.
+                ws3: false,
+            },
+            ..AppSettings::default()
+        };
+
+        let ctx = CommandContext::open(&project, app_settings)?;
+        let repo = ctx.gix_repo()?;
+
+        let stack_entry = match id {
+            Some(id) => add_branch_to_stack(&ctx, id, name, description, project.clone(), &repo)?,
+            None => create_stack_with_branch(&ctx, name, description)?,
+        };
+
+        if use_json {
+            let json = serde_json::to_string_pretty(&stack_entry)?;
+            println!("{json}");
+            Ok(())
+        } else {
+            debug_print(stack_entry)
+        }
+    }
+
     pub fn branch_commits(
-        id: &str,
+        id: StackId,
         name: &str,
         current_dir: &Path,
         use_json: bool,
@@ -163,9 +297,8 @@ pub mod stacks {
         let ctx = CommandContext::open(&project, AppSettings::default())?;
         let repo = ctx.gix_repo()?;
         let local_and_remote =
-            stack_branch_local_and_remote_commits(id.to_string(), name.to_string(), &ctx, &repo);
-        let upstream_only =
-            stack_branch_upstream_only_commits(id.to_string(), name.to_string(), &ctx, &repo);
+            stack_branch_local_and_remote_commits(id, name.to_string(), &ctx, &repo);
+        let upstream_only = stack_branch_upstream_only_commits(id, name.to_string(), &ctx, &repo);
 
         if use_json {
             let branch_commits = BranchCommits {
@@ -205,16 +338,41 @@ pub(crate) fn discard_change(
         &path,
         previous_path.as_ref(),
     )?;
-    let spec = but_workspace::commit_engine::DiffSpec {
-        previous_path,
-        path,
+    let spec = but_workspace::DiffSpec {
+        previous_path_bytes: previous_path,
+        path_bytes: path,
         hunk_headers,
     };
     debug_print(but_workspace::discard_workspace_changes(
         &repo,
-        Some(spec.into()),
+        Some(spec),
         UI_CONTEXT_LINES,
     )?)
+}
+
+pub async fn watch(args: &super::Args) -> anyhow::Result<()> {
+    let (repo, project) = repo_and_maybe_project(args, RepositoryOpenMode::General)?;
+    let (tx, mut rx) = unbounded_channel();
+    let start = std::time::Instant::now();
+    let workdir = repo
+        .workdir()
+        .context("really only want to watch workdirs")?;
+    let _watcher = gitbutler_filemonitor::spawn(
+        project.map(|p| p.id).unwrap_or(ProjectId::generate()),
+        workdir,
+        tx,
+    )?;
+    let elapsed = start.elapsed();
+    eprintln!(
+        "Started watching {workdir} in {elapsed:?}s - waiting for events",
+        elapsed = elapsed.as_secs_f32(),
+        workdir = workdir.display(),
+    );
+
+    while let Some(event) = rx.recv().await {
+        debug_print(event).ok();
+    }
+    Ok(())
 }
 
 fn indices_or_headers_to_hunk_headers(

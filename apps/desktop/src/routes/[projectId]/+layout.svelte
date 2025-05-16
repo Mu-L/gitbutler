@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import Chrome from '$components/Chrome.svelte';
 	import FileMenuAction from '$components/FileMenuAction.svelte';
 	import History from '$components/History.svelte';
@@ -8,6 +9,7 @@
 	import NotOnGitButlerBranch from '$components/NotOnGitButlerBranch.svelte';
 	import ProblemLoadingRepo from '$components/ProblemLoadingRepo.svelte';
 	import ProjectSettingsMenuAction from '$components/ProjectSettingsMenuAction.svelte';
+	import IrcPopups from '$components/v3/IrcPopups.svelte';
 	import { BaseBranch } from '$lib/baseBranch/baseBranch';
 	import BaseBranchService from '$lib/baseBranch/baseBranchService.svelte';
 	import { BranchService } from '$lib/branches/branchService.svelte';
@@ -33,11 +35,9 @@
 	import { projectCloudSync } from '$lib/project/projectCloudSync.svelte';
 	import { ProjectService } from '$lib/project/projectService';
 	import { getSecretsService } from '$lib/secrets/secretsService';
-	import { IdSelection } from '$lib/selection/idSelection.svelte';
 	import { StackService } from '$lib/stacks/stackService.svelte';
 	import { UpstreamIntegrationService } from '$lib/upstream/upstreamIntegrationService';
 	import { debounce } from '$lib/utils/debounce';
-	import { WorktreeService } from '$lib/worktree/worktreeService.svelte';
 	import { BranchService as CloudBranchService } from '@gitbutler/shared/branches/branchService';
 	import { LatestBranchLookupService } from '@gitbutler/shared/branches/latestBranchLookupService';
 	import { getContext } from '@gitbutler/shared/context';
@@ -47,20 +47,11 @@
 	import { onDestroy, setContext, type Snippet } from 'svelte';
 	import type { ProjectMetrics } from '$lib/metrics/projectMetrics';
 	import type { LayoutData } from './$types';
-	import { goto } from '$app/navigation';
 
 	const { data, children }: { data: LayoutData; children: Snippet } = $props();
 
-	const {
-		project,
-		projectId,
-		projectsService,
-		modeService,
-		userService,
-		fetchSignal,
-		posthog,
-		projectMetrics
-	} = $derived(data);
+	const { project, projectId, projectsService, userService, fetchSignal, posthog, projectMetrics } =
+		$derived(data);
 
 	const baseBranchService = getContext(BaseBranchService);
 	const repoInfoResponse = $derived(baseBranchService.repo(projectId));
@@ -72,6 +63,12 @@
 	const baseError = $derived(baseBranchResponse.current.error);
 	const baseBranchName = $derived(baseBranch?.shortName);
 	const branchService = getContext(BranchService);
+
+	const stackService = getContext(StackService);
+	const modeService = $derived(new ModeService(projectId, stackService));
+	$effect.pre(() => {
+		setContext(ModeService, modeService);
+	});
 
 	const vbranchService = $derived(
 		new VirtualBranchService(projectId, projectMetrics, modeService, branchService)
@@ -113,8 +110,6 @@
 		setContext(UpstreamIntegrationService, upstreamIntegrationService);
 	});
 
-	const stackService = getContext(StackService);
-
 	$effect.pre(() => {
 		const stackingReorderDropzoneManagerFactory = new StackingReorderDropzoneManagerFactory(
 			projectId,
@@ -130,7 +125,6 @@
 		setContext(BaseBranch, baseBranch);
 		setContext(Project, project);
 		setContext(GitBranchService, data.gitBranchService);
-		setContext(ModeService, data.modeService);
 		setContext(UncommitedFilesWatcher, data.uncommitedFileWatcher);
 		setContext(ProjectService, data.projectService);
 		setContext(VirtualBranchService, vbranchService);
@@ -142,10 +136,6 @@
 
 	const focusManager = new FocusManager();
 	setContext(FocusManager, focusManager);
-
-	const worktreeService = getContext(WorktreeService);
-	const idSelection = new IdSelection(worktreeService);
-	setContext(IdSelection, idSelection);
 
 	let intervalId: any;
 
@@ -182,7 +172,8 @@
 			pushRepo: forkInfo,
 			baseBranch: baseBranchName,
 			githubAuthenticated: !!$user?.github_access_token,
-			gitlabAuthenticated: !!$gitlabConfigured
+			gitlabAuthenticated: !!$gitlabConfigured,
+			forgeOverride: $projects?.find((project) => project.id === projectId)?.forge_override
 		});
 	});
 
@@ -219,13 +210,17 @@
 	});
 
 	async function fetchRemoteForProject() {
-		await baseBranchService.fetchFromRemotes(projectId);
+		await baseBranchService.fetchFromRemotes(projectId, 'auto');
 	}
 
 	function setupFetchInterval() {
+		const autoFetchIntervalMinutes = $settingsStore?.fetch.autoFetchIntervalMinutes || 15;
+		if (autoFetchIntervalMinutes < 0) {
+			return;
+		}
 		fetchRemoteForProject();
 		clearFetchInterval();
-		const intervalMs = 15 * 60 * 1000; // 15 minutes
+		const intervalMs = autoFetchIntervalMinutes * 60 * 1000; // 15 minutes
 		intervalId = setInterval(async () => {
 			await fetchRemoteForProject();
 		}, intervalMs);
@@ -312,7 +307,7 @@
 	{:else if $projectError}
 		<ProblemLoadingRepo error={$projectError} />
 	{:else if noViewableProjects}
-		<ProblemLoadingRepo error={'All projects are already open in another window'} />
+		<ProblemLoadingRepo error="All projects are already open in another window" />
 	{:else if baseBranch}
 		{#if $mode?.type === 'OpenWorkspace' || $mode?.type === 'Edit'}
 			<div class="view-wrap" role="group" ondragover={(e) => e.preventDefault()}>
@@ -329,16 +324,14 @@
 				{/if}
 			</div>
 		{:else if $mode?.type === 'OutsideWorkspace'}
-			{#if $settingsStore?.featureFlags.v3}
-				<Chrome {projectId} sidebarDisabled>
-					<NotOnGitButlerBranch {baseBranch} />
-				</Chrome>
-			{:else}
-				<NotOnGitButlerBranch {baseBranch} />
-			{/if}
+			<NotOnGitButlerBranch {baseBranch} />
 		{/if}
 	{/if}
 {/key}
+
+{#if $settingsStore?.featureFlags.v3}
+	<IrcPopups />
+{/if}
 
 <!-- Mounting metrics reporter in the board ensures dependent services are subscribed to. -->
 <MetricsReporter {projectId} {projectMetrics} />

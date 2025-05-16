@@ -2,6 +2,10 @@
 	import '@gitbutler/ui/main.css';
 	import '../styles/styles.css';
 
+	import { browser } from '$app/environment';
+	import { dev } from '$app/environment';
+	import { beforeNavigate, afterNavigate } from '$app/navigation';
+	import { goto } from '$app/navigation';
 	import AppUpdater from '$components/AppUpdater.svelte';
 	import GlobalSettingsMenuAction from '$components/GlobalSettingsMenuAction.svelte';
 	import PromptModal from '$components/PromptModal.svelte';
@@ -10,6 +14,7 @@
 	import ShareIssueModal from '$components/ShareIssueModal.svelte';
 	import SwitchThemeMenuAction from '$components/SwitchThemeMenuAction.svelte';
 	import ToastController from '$components/ToastController.svelte';
+	import TryV3Modal from '$components/TryV3Modal.svelte';
 	import ZoomInOutMenuAction from '$components/ZoomInOutMenuAction.svelte';
 	import LineSelection from '$components/v3/unifiedDiffLineSelection.svelte';
 	import { PromptService as AIPromptService } from '$lib/ai/promptService';
@@ -27,6 +32,7 @@
 	import { SettingsService } from '$lib/config/appSettingsV2';
 	import { GitConfigService } from '$lib/config/gitConfigService';
 	import { ircEnabled, ircServer } from '$lib/config/uiFeatureFlags';
+	import DependencyService from '$lib/dependencies/dependencyService.svelte';
 	import { FileService } from '$lib/files/fileService';
 	import { ButRequestDetailsService } from '$lib/forge/butRequestDetailsService';
 	import { DefaultForgeFactory } from '$lib/forge/forgeFactory.svelte';
@@ -43,6 +49,7 @@
 	import { RemotesService } from '$lib/remotes/remotesService';
 	import { setSecretsService } from '$lib/secrets/secretsService';
 	import { ChangeSelectionService } from '$lib/selection/changeSelection.svelte';
+	import { IdSelection } from '$lib/selection/idSelection.svelte';
 	import { SETTINGS, loadUserSettings } from '$lib/settings/userSettings';
 	import { ShortcutService } from '$lib/shortcuts/shortcutService.svelte';
 	import { StackService } from '$lib/stacks/stackService.svelte';
@@ -70,16 +77,12 @@
 	import { reactive } from '@gitbutler/shared/storeUtils';
 	import { UploadsService } from '@gitbutler/shared/uploads/uploadsService';
 	import { UserService as CloudUserService } from '@gitbutler/shared/users/userService';
-	import { LineManagerFactory } from '@gitbutler/ui/commitLines/lineManager';
 	import { LineManagerFactory as StackingLineManagerFactory } from '@gitbutler/ui/commitLines/lineManager';
+	import { LineManagerFactory } from '@gitbutler/ui/commitLines/lineManager';
 	import { setExternalLinkService } from '@gitbutler/ui/link/externalLinkService';
 	import { onMount, setContext, type Snippet } from 'svelte';
 	import { Toaster } from 'svelte-french-toast';
 	import type { LayoutData } from './$types';
-	import { dev } from '$app/environment';
-	import { browser } from '$app/environment';
-	import { goto } from '$app/navigation';
-	import { beforeNavigate, afterNavigate } from '$app/navigation';
 	import { env } from '$env/dynamic/public';
 
 	const { data, children }: { data: LayoutData; children: Snippet } = $props();
@@ -105,23 +108,18 @@
 		gitHubClient,
 		gitLabClient,
 		ircClient,
-		data.posthog
+		data.posthog,
+		data.settingsService
 	);
 
 	const ircService = new IrcService(clientState, clientState.dispatch, ircClient);
 	setContext(IrcService, ircService);
 
 	$effect(() => {
-		if ($user?.login && ircClient.connected) {
-			ircService.setWhoInfo({ nick: $user.login });
-		}
-	});
-
-	$effect(() => {
-		if (!$ircEnabled || !$ircServer) {
+		if (!$ircEnabled || !$ircServer || !$user || !$user.login) {
 			return;
 		}
-		ircClient.connect($ircServer);
+		ircClient.connect({ server: $ircServer, nick: $user.login });
 		return () => {
 			ircService.disconnect();
 		};
@@ -158,6 +156,8 @@
 	const organizationService = new OrganizationService(data.cloud, appState.appDispatch);
 	const cloudUserService = new CloudUserService(data.cloud, appState.appDispatch);
 	const cloudProjectService = new CloudProjectService(data.cloud, appState.appDispatch);
+	const dependecyService = new DependencyService(clientState.backendApi);
+	const idSelection = new IdSelection(worktreeService, stackService);
 
 	const cloudBranchService = new CloudBranchService(data.cloud, appState.appDispatch);
 	const cloudPatchService = new CloudPatchCommitService(data.cloud, appState.appDispatch);
@@ -235,6 +235,8 @@
 	setContext(ShortcutService, shortcutService);
 	setContext(DiffService, diffService);
 	setContext(UploadsService, data.uploadsService);
+	setContext(DependencyService, dependecyService);
+	setContext(IdSelection, idSelection);
 
 	setNameNormalizationServiceContext(new IpcNameNormalizationService(invoke));
 
@@ -267,6 +269,10 @@
 		'v 3': () => {
 			settingsService.updateFeatureFlags({ v3: !$settingsStore?.featureFlags.v3 });
 		},
+		// Toggle v3 workspace APIs on/off
+		'w s 3': () => {
+			settingsService.updateFeatureFlags({ ws3: !$settingsStore?.featureFlags.ws3 });
+		},
 		// This is a debug tool to learn about environment variables actually present - only available if the backend is in debug mode.
 		'e n v': async () => {
 			let env = await invoke('env_vars');
@@ -277,6 +283,10 @@
 			console.log('Also written to window.tauriEnv');
 		}
 	});
+
+	/** These are made available on the window object for easier debugging. */
+	(window as any)['uiState'] = uiState;
+	(window as any)['idSelection'] = idSelection;
 </script>
 
 <svelte:window
@@ -291,6 +301,7 @@
 	{/if}
 	{@render children()}
 </div>
+<TryV3Modal />
 <Toaster />
 <ShareIssueModal bind:this={shareIssueModal} />
 <ToastController />

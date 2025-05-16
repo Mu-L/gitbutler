@@ -4,6 +4,7 @@
 	import Checkbox from '$lib/Checkbox.svelte';
 	import Icon from '$lib/Icon.svelte';
 	import Tooltip from '$lib/Tooltip.svelte';
+	import ExecutableLabel from '$lib/file/ExecutableLabel.svelte';
 	import FileIndent from '$lib/file/FileIndent.svelte';
 	import FileName from '$lib/file/FileName.svelte';
 	import FileStatusBadge from '$lib/file/FileStatusBadge.svelte';
@@ -29,8 +30,9 @@
 		conflictHint?: string;
 		locked?: boolean;
 		lockText?: string;
-		listActive?: boolean;
+		active?: boolean;
 		isLast?: boolean;
+		executable?: boolean;
 		oncheck?: (
 			e: Event & {
 				currentTarget: EventTarget & HTMLInputElement;
@@ -62,9 +64,10 @@
 		conflictHint,
 		locked,
 		lockText,
-		listActive,
+		active,
 		listMode,
 		depth,
+		executable,
 		oncheck,
 		onclick,
 		ondblclick,
@@ -82,7 +85,7 @@
 	data-file-id={id}
 	class="file-list-item"
 	class:selected
-	class:list-active={listActive}
+	class:active
 	class:clickable
 	class:focused
 	class:draggable
@@ -161,6 +164,10 @@
 			</Tooltip>
 		{/if}
 
+		{#if executable}
+			<ExecutableLabel />
+		{/if}
+
 		{#if fileStatus}
 			<FileStatusBadge tooltip={fileStatusTooltip} status={fileStatus} style={fileStatusStyle} />
 		{/if}
@@ -172,8 +179,7 @@
 		position: relative;
 		display: flex;
 		align-items: center;
-		padding: 0 8px 0 14px;
-
+		padding: 0 10px 0 14px;
 		gap: 8px;
 		height: 32px;
 		overflow: hidden;
@@ -198,7 +204,7 @@
 			background-color: var(--clr-selected-not-in-focus-bg);
 		}
 
-		&.list-active.selected {
+		&.active.selected {
 			background-color: var(--clr-selected-in-focus-bg);
 		}
 
@@ -219,7 +225,7 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		height: 100%;
+		/* height: 100%; */
 	}
 
 	.draggable-handle {

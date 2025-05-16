@@ -182,6 +182,7 @@
 
 		const prompt = promptService.selectedBranchPrompt(projectId);
 		const newBranchName = await aiService.summarizeBranch({
+			type: 'hunks',
 			hunks,
 			branchTemplate: prompt
 		});
@@ -198,7 +199,7 @@
 
 	closedStateSync(reactive(() => branch));
 
-	const dzHandler = $derived(new MoveCommitDzHandler(stackService, stack, projectId));
+	const dzHandler = $derived(new MoveCommitDzHandler(stackService, stack.id, projectId));
 
 	let renameBranchModal = $state<BranchRenameModal>();
 	let deleteBranchModal = $state<DeleteBranchModal>();
@@ -340,7 +341,13 @@
 			<div class="branch-review-section">
 				<div class="branch-action__line" style:--bg-color={lineColor}></div>
 				<div class="branch-review-container">
-					<BranchReview {projectId} stackId={stack.id} branchName={branch.name}>
+					<BranchReview
+						{projectId}
+						stackId={stack.id}
+						branchName={branch.name}
+						prNumber={branch.prNumber || undefined}
+						reviewId={branch.reviewId || undefined}
+					>
 						{#snippet branchStatus()}
 							<BranchStatus
 								{mergedIncorrectly}

@@ -27,6 +27,7 @@
 		error?: string | undefined;
 		title?: Snippet;
 		content?: Snippet;
+		testId?: string;
 	}
 
 	const {
@@ -43,7 +44,8 @@
 		shadow = false,
 		error = undefined,
 		title,
-		content
+		content,
+		testId
 	}: Props = $props();
 
 	const iconMap: { [Key in MessageStyle]: IconName } = {
@@ -74,6 +76,7 @@
 </script>
 
 <div
+	data-testid={testId}
 	class="info-message {style}"
 	class:has-border={outlined}
 	class:has-background={filled}
@@ -127,7 +130,7 @@
 		color: var(--clr-scale-ntrl-0);
 		display: flex;
 		padding: 14px;
-		border-radius: var(--radius-m);
+		border-radius: var(--radius-ml);
 		gap: 12px;
 		background-color: var(--clr-bg-1);
 		transition:
@@ -219,6 +222,7 @@
 		color: var(--clr-scale-err-10);
 		border-radius: var(--radius-s);
 		font-size: 12px;
+		white-space: pre;
 
 		/* scrollbar */
 		&::-webkit-scrollbar {
