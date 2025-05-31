@@ -2,8 +2,12 @@
 	import ScrollableContainer from '$components/ConfigurableScrollableContainer.svelte';
 	import { writeClipboard } from '$lib/backend/clipboard';
 	import BaseBranchService from '$lib/baseBranch/baseBranchService.svelte';
+	import { confettiEnabled } from '$lib/config/uiFeatureFlags';
 	import { DefaultForgeFactory } from '$lib/forge/forgeFactory.svelte';
+	import { sprayConfetti } from '$lib/joy/confetti';
 	import { type Stack } from '$lib/stacks/stack';
+	import { StackService } from '$lib/stacks/stackService.svelte';
+	import { TestId } from '$lib/testing/testIds';
 	import {
 		getBaseBranchResolution,
 		type BaseBranchResolutionApproach,
@@ -13,21 +17,26 @@
 		type BranchStatus,
 		sortStatusInfoV3,
 		getResolutionApproachV3,
-		type StackStatusInfoV3
+		type StackStatusInfoV3,
+		type StackStatusesWithBranchesV3
 	} from '$lib/upstream/types';
 	import { UpstreamIntegrationService } from '$lib/upstream/upstreamIntegrationService.svelte';
 	import { openExternalUrl } from '$lib/utils/url';
 	import { getContext } from '@gitbutler/shared/context';
 	import Badge from '@gitbutler/ui/Badge.svelte';
 	import Button from '@gitbutler/ui/Button.svelte';
-	import IntegrationSeriesRow from '@gitbutler/ui/IntegrationSeriesRow.svelte';
+	import IntegrationSeriesRow, {
+		type BranchShouldBeDeletedMap
+	} from '@gitbutler/ui/IntegrationSeriesRow.svelte';
 	import Modal from '@gitbutler/ui/Modal.svelte';
 	import SimpleCommitRow from '@gitbutler/ui/SimpleCommitRow.svelte';
+	import FileListItemV3 from '@gitbutler/ui/file/FileListItemV3.svelte';
 	import Select from '@gitbutler/ui/select/Select.svelte';
 	import SelectItem from '@gitbutler/ui/select/SelectItem.svelte';
 	import { pxToRem } from '@gitbutler/ui/utils/pxToRem';
 	import { tick } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
+	import type { PullRequest } from '$lib/forge/interface/types';
 
 	type OperationState = 'inert' | 'loading' | 'completed';
 	type OperationType = 'rebase' | 'merge' | 'unapply' | 'delete';
@@ -41,65 +50,96 @@
 
 	const upstreamIntegrationService = getContext(UpstreamIntegrationService);
 	const forge = getContext(DefaultForgeFactory);
+	const forgeListingService = $derived(forge.current.listService);
 	const baseBranchService = getContext(BaseBranchService);
 	const baseBranchResponse = $derived(baseBranchService.baseBranch(projectId));
 	const base = $derived(baseBranchResponse.current.data);
-	const [resolveUpstreamIntegration] = upstreamIntegrationService.resolveUpstreamIntegration();
 
 	let modal = $state<Modal>();
 	let integratingUpstream = $state<OperationState>('inert');
-	let results = $state(new SvelteMap<string, Resolution>());
+	const results = new SvelteMap<string, Resolution>();
 	let statuses = $state<StackStatusInfoV3[]>([]);
 	let baseResolutionApproach = $state<BaseBranchResolutionApproach | undefined>();
 	let targetCommitOid = $state<string | undefined>(undefined);
+	let branchStatuses = $state<StackStatusesWithBranchesV3 | undefined>();
+	const stackService = getContext(StackService);
+	let appliedBranches = $state<string[]>();
+	let filteredReviews = $state<PullRequest[] | undefined>(undefined);
+	const reviewMap = $derived(new Map(filteredReviews?.map((r) => [r.sourceBranch, r])));
 
 	const isDivergedResolved = $derived(base?.diverged && !baseResolutionApproach);
 	const [integrateUpstream] = $derived(upstreamIntegrationService.integrateUpstream(projectId));
 
-	// Will re-fetch upstream statuses if the target commit oid changes
-	const branchStatuses = $derived(
-		upstreamIntegrationService.upstreamStatuses(projectId, targetCommitOid)
-	);
-
 	$effect(() => {
-		if (branchStatuses.current?.type !== 'updatesRequired') {
+		if (!modal?.imports.open) return;
+		if (branchStatuses?.type !== 'updatesRequired' || filteredReviews === undefined) {
 			statuses = [];
 			return;
 		}
 
-		const statusesTmp = [...branchStatuses.current.subject];
+		const statusesTmp = [...branchStatuses.subject];
 		statusesTmp.sort(sortStatusInfoV3);
 
 		// Side effect, refresh results
-		results = new SvelteMap(
-			statusesTmp.map((status) => {
-				const defaultApproach = getResolutionApproachV3(status);
+		results.clear();
+		for (const status of statusesTmp) {
+			const mergedAssociatedReviews = filteredReviews.filter(
+				(r) => status.stack.heads.some((h) => h.name === r.sourceBranch) && r.mergedAt !== undefined
+			);
+			const forceIntegratedBranches = mergedAssociatedReviews.map((r) => r.sourceBranch);
 
-				return [
-					status.stack.id,
-					{
-						branchId: status.stack.id,
-						approach: defaultApproach,
-						deleteIntegratedBranches: false // TODO: Take input from the UI
-					}
-				];
-			})
-		);
+			results.set(status.stack.id, {
+				branchId: status.stack.id,
+				approach: getResolutionApproachV3(status),
+				deleteIntegratedBranches: true,
+				forceIntegratedBranches
+			});
+		}
 
 		statuses = statusesTmp;
+	});
+
+	// Re-fetch upstream statuses if the target commit oid changes
+	$effect(() => {
+		if (!modal?.imports.open) return;
+		if (targetCommitOid) {
+			upstreamIntegrationService.upstreamStatuses(projectId, targetCommitOid).then((statuses) => {
+				branchStatuses = statuses;
+			});
+		}
 	});
 
 	// Resolve the target commit oid if the base branch diverged and the the resolution
 	// approach is changed
 	$effect(() => {
+		if (!modal?.imports.open) return;
 		if (base?.diverged && baseResolutionApproach) {
-			resolveUpstreamIntegration({
-				projectId,
-				resolutionApproach: { type: baseResolutionApproach }
-			}).then((result) => {
-				if (result) {
+			upstreamIntegrationService
+				.resolveUpstreamIntegrationMutation({
+					projectId,
+					resolutionApproach: { type: baseResolutionApproach }
+				})
+				.then((result) => {
 					targetCommitOid = result;
-				}
+				});
+		}
+	});
+
+	// Fetch the reviews for the applied branches
+	$effect(() => {
+		if (!modal?.imports.open) return;
+		if (
+			filteredReviews === undefined &&
+			appliedBranches !== undefined &&
+			forgeListingService !== undefined
+		) {
+			if (appliedBranches.length === 0) {
+				filteredReviews = [];
+				return;
+			}
+
+			forgeListingService.fetchByBranch(projectId, appliedBranches).then((reviews) => {
+				filteredReviews = reviews.filter((r) => r.sourceBranch !== undefined);
 			});
 		}
 	});
@@ -108,7 +148,7 @@
 		baseResolutionApproach = value as BaseBranchResolutionApproach;
 	}
 
-	async function integrate() {
+	async function integrate(e?: MouseEvent) {
 		integratingUpstream = 'loading';
 		await tick();
 		const baseResolution = getBaseBranchResolution(
@@ -116,23 +156,38 @@
 			baseResolutionApproach || 'hardReset'
 		);
 
-		try {
-			await integrateUpstream({
-				projectId,
-				resolutions: Array.from(results.values()),
-				baseBranchResolution: baseResolution
-			});
-		} finally {
-			await baseBranchService.refreshBaseBranch(projectId);
-			integratingUpstream = 'completed';
-			modal?.close();
+		const result = await integrateUpstream({
+			projectId,
+			resolutions: Array.from(results.values()),
+			baseBranchResolution: baseResolution
+		});
+		if ($confettiEnabled && result.archivedBranches.length > 0 && e) {
+			sprayConfetti(e);
 		}
+		await baseBranchService.refreshBaseBranch(projectId);
+		integratingUpstream = 'completed';
+		modal?.close();
+	}
+
+	async function fetchAppliedBranches() {
+		return await stackService
+			.fetchStacks(projectId)
+			.then(
+				(stacksResponse) =>
+					stacksResponse.data?.flatMap((stack) => stack.heads.map((head) => head.name)) ?? []
+			);
 	}
 
 	export async function show() {
 		integratingUpstream = 'inert';
+		branchStatuses = undefined;
+		filteredReviews = undefined;
+		await tick();
 		modal?.show();
-		targetCommitOid = undefined;
+		// Fetch the base branch and the forge info to ensure we have the latest data
+		await baseBranchService.fetchFromRemotes(projectId);
+		appliedBranches = await fetchAppliedBranches();
+		branchStatuses = await upstreamIntegrationService.upstreamStatuses(projectId, targetCommitOid);
 	}
 
 	export const imports = {
@@ -142,28 +197,54 @@
 	};
 
 	function branchStatusToRowEntry(
+		associatedeReview: PullRequest | undefined,
 		branchStatus: BranchStatus
 	): 'integrated' | 'conflicted' | 'clear' {
+		if (associatedeReview?.mergedAt !== undefined) {
+			return 'integrated';
+		}
+
 		if (branchStatus.type === 'integrated') {
 			return 'integrated';
 		}
+
 		if (branchStatus.type === 'conflicted') {
 			return 'conflicted';
 		}
+
 		return 'clear';
 	}
 
 	function integrationRowSeries(
 		stackStatus: StackStatus
 	): { name: string; status: 'integrated' | 'conflicted' | 'clear' }[] {
-		const statuses = stackStatus.branchStatuses.map((series) => ({
-			name: series.name,
-			status: branchStatusToRowEntry(series.status)
-		}));
+		const statuses = stackStatus.branchStatuses.map((series) => {
+			const associatedeReview = reviewMap.get(series.name);
+			return {
+				name: series.name,
+				status: branchStatusToRowEntry(associatedeReview, series.status)
+			};
+		});
 
 		statuses.reverse();
 
 		return statuses;
+	}
+	function getBranchShouldBeDeletedMap(
+		stackId: string,
+		stackStatus: StackStatus
+	): BranchShouldBeDeletedMap {
+		const branchShouldBeDeletedMap: BranchShouldBeDeletedMap = {};
+		stackStatus.branchStatuses.forEach((branch) => {
+			branchShouldBeDeletedMap[branch.name] = !!results.get(stackId)?.deleteIntegratedBranches;
+		});
+		return branchShouldBeDeletedMap;
+	}
+
+	function updateBranchShouldBeDeletedMap(stackId: string, shouldBeDeleted: boolean): void {
+		const result = results.get(stackId);
+		if (!result) return;
+		results.set(stackId, { ...result, deleteIntegratedBranches: shouldBeDeleted });
 	}
 
 	function integrationOptions(
@@ -185,38 +266,50 @@
 </script>
 
 {#snippet stackStatus(stack: Stack, stackStatus: StackStatus)}
-	<IntegrationSeriesRow series={integrationRowSeries(stackStatus)}>
-		{#snippet select()}
-			{#if !stackFullyIntegrated(stackStatus) && results.get(stack.id)}
-				<Select
-					value={results.get(stack.id)!.approach.type}
-					onselect={(value) => {
-						const result = results.get(stack.id)!;
-
-						results.set(stack.id, { ...result, approach: { type: value as OperationType } });
-					}}
-					options={integrationOptions(stackStatus)}
-				>
-					{#snippet itemSnippet({ item, highlighted })}
-						<SelectItem selected={highlighted} {highlighted}>
-							{item.label}
-						</SelectItem>
-					{/snippet}
-				</Select>
-			{/if}
-		{/snippet}
+	{@const branchShouldBeDeletedMap = getBranchShouldBeDeletedMap(stack.id, stackStatus)}
+	<IntegrationSeriesRow
+		testId={TestId.IntegrateUpstreamSeriesRow}
+		series={integrationRowSeries(stackStatus)}
+		{branchShouldBeDeletedMap}
+		updateBranchShouldBeDeletedMap={(_, shouldBeDeleted) =>
+			updateBranchShouldBeDeletedMap(stack.id, shouldBeDeleted)}
+	>
+		{#if !stackFullyIntegrated(stackStatus) && results.get(stack.id)}
+			<Select
+				value={results.get(stack.id)!.approach.type}
+				maxWidth={130}
+				onselect={(value) => {
+					const result = results.get(stack.id)!;
+					results.set(stack.id, { ...result, approach: { type: value as OperationType } });
+				}}
+				options={integrationOptions(stackStatus)}
+			>
+				{#snippet itemSnippet({ item, highlighted })}
+					<SelectItem selected={highlighted} {highlighted}>
+						{item.label}
+					</SelectItem>
+				{/snippet}
+			</Select>
+		{/if}
 	</IntegrationSeriesRow>
 {/snippet}
 
-<Modal bind:this={modal} {onClose} width={520} noPadding onSubmit={integrate}>
-	<ScrollableContainer maxHeight={'70vh'}>
+<Modal
+	testId={TestId.IntegrateUpstreamCommitsModal}
+	bind:this={modal}
+	{onClose}
+	width={520}
+	noPadding
+	onSubmit={() => integrate()}
+>
+	<ScrollableContainer maxHeight="70vh">
 		{#if base}
 			<div class="section">
 				<h3 class="text-14 text-semibold section-title">
 					<span>Incoming changes</span><Badge>{base.upstreamCommits.length}</Badge>
 				</h3>
 				<div class="scroll-wrap">
-					<ScrollableContainer maxHeight={pxToRem(268)}>
+					<ScrollableContainer maxHeight="{pxToRem(268)}rem">
 						{#each base.upstreamCommits as commit}
 							{@const commitUrl = forge.current.commitUrl(commit.id)}
 							<SimpleCommitRow
@@ -233,7 +326,34 @@
 				</div>
 			</div>
 		{/if}
+		<!-- CONFLICTED FILES -->
+		{#if branchStatuses?.type === 'updatesRequired' && branchStatuses?.worktreeConflicts.length > 0}
+			<div class="section">
+				<h3 class="text-14 text-semibold section-title">
+					<span>Conflicting uncommitted files</span>
 
+					<Badge>{branchStatuses?.worktreeConflicts.length}</Badge>
+				</h3>
+				<p class="text-12 text-clr2">
+					Updating the workspace will add conflict markers to the following files.
+				</p>
+				<div class="scroll-wrap">
+					<ScrollableContainer maxHeight="{pxToRem(268)}rem">
+						{@const conflicts = branchStatuses?.worktreeConflicts}
+						{#each conflicts as file}
+							<FileListItemV3
+								listMode="list"
+								filePath={file}
+								clickable={false}
+								conflicted
+								isLast={file === conflicts[conflicts.length - 1]}
+							/>
+						{/each}
+					</ScrollableContainer>
+				</div>
+			</div>
+		{/if}
+		<!-- DIVERGED -->
 		{#if base?.diverged}
 			<div class="target-divergence">
 				<img class="target-icon" src="/images/domain-icons/trunk.svg" alt="" />
@@ -267,12 +387,12 @@
 				</div>
 			</div>
 		{/if}
-
+		<!-- STACKS AND BRANCHES TO UPDATE -->
 		{#if statuses.length > 0}
 			<div class="section" class:section-disabled={isDivergedResolved}>
 				<h3 class="text-14 text-semibold">To be updated:</h3>
 				<div class="scroll-wrap">
-					<ScrollableContainer maxHeight={pxToRem(240)}>
+					<ScrollableContainer maxHeight="{pxToRem(240)}rem">
 						{#each statuses as { stack, status }}
 							{@render stackStatus(stack, status)}
 						{/each}
@@ -286,12 +406,19 @@
 		<div class="controls">
 			<Button onclick={() => modal?.close()} kind="outline">Cancel</Button>
 			<Button
+				testId={TestId.IntegrateUpstreamActionButton}
 				wide
-				type="submit"
 				style="pop"
 				disabled={isDivergedResolved || !branchStatuses}
-				loading={integratingUpstream === 'loading' || !branchStatuses}>Update workspace</Button
+				loading={integratingUpstream === 'loading' ||
+					!branchStatuses ||
+					filteredReviews === undefined}
+				onclick={async (e) => {
+					await integrate(e);
+				}}
 			>
+				Update workspace
+			</Button>
 		</div>
 	{/snippet}
 </Modal>
@@ -310,9 +437,9 @@
 		}
 
 		.scroll-wrap {
-			border-radius: var(--radius-m);
-			border: 1px solid var(--clr-border-2);
 			overflow: hidden;
+			border: 1px solid var(--clr-border-2);
+			border-radius: var(--radius-m);
 		}
 	}
 
@@ -339,8 +466,8 @@
 
 	.target-divergence-about {
 		display: flex;
-		width: 100%;
 		flex-direction: column;
+		width: 100%;
 		gap: 8px;
 	}
 

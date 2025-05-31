@@ -36,10 +36,10 @@
 	import ScrollableContainer from '$lib/scroll/ScrollableContainer.svelte';
 	import OptionsGroup from '$lib/select/OptionsGroup.svelte';
 	import SearchItem from '$lib/select/SearchItem.svelte';
+	import { KeyName } from '$lib/utils/hotkeys';
 	import { portal } from '$lib/utils/portal';
 	import { pxToRem } from '$lib/utils/pxToRem';
 	import { resizeObserver } from '$lib/utils/resizeObserver';
-	import { KeyName } from '$lib/utils/hotkeys';
 	import { type Snippet } from 'svelte';
 
 	const {
@@ -113,8 +113,11 @@
 	function toggleList() {
 		getInputBoundingRect();
 
-		if (listOpen) closeList();
-		else openList();
+		if (listOpen) {
+			closeList();
+		} else if (!disabled) {
+			openList();
+		}
 	}
 
 	function handleSelect(item: SelectItem<string>) {
@@ -211,7 +214,7 @@
 	class:wide
 	bind:this={selectWrapperEl}
 	style:flex
-	style:max-width={maxWidth ? pxToRem(maxWidth) : undefined}
+	style:max-width={maxWidth ? `${pxToRem(maxWidth)}rem` : 'none'}
 >
 	{#if label}
 		<label for={id} class="select__label text-13 text-body text-semibold">{label}</label>
@@ -254,7 +257,7 @@
 				class="options card"
 				bind:this={optionsGroupEl}
 				style:width={getPopupWidthStyle()}
-				style:max-width={customWidth && pxToRem(customWidth)}
+				style:max-width={customWidth && `${pxToRem(customWidth)}rem`}
 				style:top={getTopStyle()}
 				style:left={getLeftStyle()}
 				style:max-height={maxHeightState && `${maxHeightState}px`}
@@ -287,16 +290,16 @@
 
 <style lang="postcss">
 	.select-wrapper {
-		position: relative;
 		display: flex;
+		position: relative;
 		flex-direction: column;
-		gap: 6px;
 		height: fit-content;
+		gap: 6px;
 	}
 
 	.select__label {
-		text-align: left;
 		color: var(--clr-scale-ntrl-50);
+		text-align: left;
 	}
 
 	.select__custom-button {
@@ -314,32 +317,32 @@
 	}
 
 	.options {
-		user-select: none;
-		position: absolute;
 		z-index: var(--z-floating);
+		position: absolute;
+		min-width: 80px;
 		margin-top: 4px;
-		border-radius: var(--radius-m);
-		border: 1px solid var(--clr-border-2);
-		background: var(--clr-bg-1);
-		box-shadow: var(--fx-shadow-s);
 		overflow: hidden;
 		transform-origin: top;
-		min-width: 80px;
+		border: 1px solid var(--clr-border-2);
+		border-radius: var(--radius-m);
+		background: var(--clr-bg-1);
+		box-shadow: var(--fx-shadow-s);
 
 		animation: fadeIn 0.16s ease-out forwards;
+		user-select: none;
 	}
 
 	@keyframes fadeIn {
 		0% {
-			opacity: 0;
 			transform: translateY(-6px);
+			opacity: 0;
 		}
 		40% {
 			opacity: 1;
 		}
 		100% {
-			opacity: 1;
 			transform: translateY(0);
+			opacity: 1;
 		}
 	}
 

@@ -1,13 +1,19 @@
 #!/usr/bin/env node
 import { VERSION } from './shared/version.js';
 import * as chatMessages from './tools/chatMessages.js';
+import * as branch from './tools/client/branch.js';
 import * as commit from './tools/client/commit.js';
 import * as status from './tools/client/status.js';
 import * as patchStacks from './tools/patchStacks.js';
 import * as projects from './tools/projects.js';
+import * as rules from './tools/rules.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+	CallToolRequestSchema,
+	GetPromptRequestSchema,
+	ListToolsRequestSchema
+} from '@modelcontextprotocol/sdk/types.js';
 import fetch from 'node-fetch';
 import { z } from 'zod';
 
@@ -22,7 +28,8 @@ const server = new Server(
 	},
 	{
 		capabilities: {
-			tools: {}
+			tools: {},
+			prompts: {}
 		}
 	}
 );
@@ -30,12 +37,15 @@ const server = new Server(
 server.setRequestHandler(ListToolsRequestSchema, async () => {
 	return {
 		tools: [
-			...projects.getProjectToolListings(),
-			...chatMessages.getChatMessageToolListings(),
-			...patchStacks.getPatchStackToolListing(),
+			// ...projects.getProjectToolListings(),
+			// ...chatMessages.getChatMessageToolListings(),
+			// ...patchStacks.getPatchStackToolListing(),
+			...rules.getRulesToolListings(),
 			...status.getStatusToolListing(),
-			...commit.getCommitToolListing()
-		]
+			...commit.getCommitToolListing(),
+			...branch.getBranchToolListing()
+		],
+		prompts: [...commit.getCommitToolPrompts()]
 	};
 });
 
@@ -46,11 +56,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 		}
 
 		const handlers = [
+			rules.getRulesToolRequestHandler,
 			projects.getProjectToolRequestHandler,
 			chatMessages.getChatMesssageToolRequestHandler,
 			patchStacks.getPatchStackToolRequestHandler,
 			status.getStatusToolRequestHandler,
-			commit.getCommitToolRequestHandler
+			commit.getCommitToolRequestHandler,
+			branch.getBranchToolRequestHandler
 		];
 
 		for (const handler of handlers) {
@@ -62,10 +74,39 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 		throw new Error(`Unknown tool: ${request.params.name}`);
 	} catch (error) {
 		if (error instanceof z.ZodError) {
-			throw new Error(`Validation error: ${JSON.stringify(error.errors)}`);
+			return {
+				isError: true,
+				content: [
+					{
+						type: 'text',
+						text: `Invalid parameters for tool ${request.params.name}: ${error.message}`
+					}
+				]
+			};
 		}
-		throw error;
+		return { isError: true, content: [{ type: 'text', text: `Error: ${String(error)}` }] };
 	}
+});
+
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+	if (!request.params.name) {
+		return {
+			isError: true,
+			content: [{ type: 'text', text: 'No prompt name provided' }]
+		};
+	}
+
+	const handlers = [commit.getCommitToolPromptRequestHandler];
+	for (const handler of handlers) {
+		const result = await handler(request.params.name, request.params.arguments ?? {});
+		if (result === null) continue;
+		return result;
+	}
+
+	return {
+		isError: true,
+		content: [{ type: 'text', text: `Unknown prompt: ${request.params.name}` }]
+	};
 });
 
 async function run() {

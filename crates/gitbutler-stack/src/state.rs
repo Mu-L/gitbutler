@@ -154,7 +154,7 @@ impl VirtualBranchesHandle {
         refname: &str,
     ) -> Result<Option<Stack>> {
         let stacks = self.list_all_stacks()?;
-        Ok(dbg!(stacks.into_iter().find(|stack| {
+        Ok(stacks.into_iter().find(|stack| {
             if stack.in_workspace {
                 return false;
             }
@@ -168,7 +168,7 @@ impl VirtualBranchesHandle {
             }
 
             false
-        })))
+        }))
     }
 
     /// Gets the state of the given virtual branch.
@@ -176,7 +176,7 @@ impl VirtualBranchesHandle {
     /// Errors if the file cannot be read or written.
     pub fn get_stack_in_workspace(&self, id: StackId) -> Result<Stack> {
         self.try_stack_in_workspace(id)?
-            .ok_or_else(|| anyhow!("branch with ID {id} not found"))
+            .ok_or_else(|| anyhow!("branch with ID {id} not found").context(Code::BranchNotFound))
     }
 
     /// Gets the state of the given virtual branch.
@@ -184,7 +184,7 @@ impl VirtualBranchesHandle {
     /// Errors if the file cannot be read or written.
     pub fn get_stack(&self, id: StackId) -> Result<Stack> {
         self.try_stack(id)?
-            .ok_or_else(|| anyhow!("branch with ID {id} not found"))
+            .ok_or_else(|| anyhow!("branch with ID {id} not found").context(Code::BranchNotFound))
     }
 
     /// Gets the state of the given virtual branch returning `Some(branch)` or `None`
@@ -290,7 +290,7 @@ impl VirtualBranchesHandle {
             if branch.not_in_workspace_wip_change_id.is_some() {
                 continue; // Skip branches that have a WIP commit
             }
-            if let Ok(branch_head) = branch.head(&gix_repo).map(|h| h.to_git2()) {
+            if let Ok(branch_head) = branch.head_oid(&gix_repo).map(|h| h.to_git2()) {
                 if repo.find_commit(branch_head).is_err() {
                     // if the head commit cant be found, we can GC the branch
                     to_remove.push(branch.id);
@@ -386,7 +386,8 @@ impl VirtualBranchesHandle {
 }
 
 fn write<P: AsRef<Path>>(file_path: P, virtual_branches: &VirtualBranches) -> Result<()> {
-    gitbutler_fs::write(file_path, toml::to_string(&virtual_branches)?)
+    gitbutler_fs::create_dirs_then_write(file_path, toml::to_string(&virtual_branches)?)
+        .map_err(Into::into)
 }
 
 /// Re-commit a commit with altered parentage

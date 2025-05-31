@@ -1,7 +1,7 @@
 <script lang="ts">
-	import DomainButton from '$components/DomainButton.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
+	import DomainButton from '$components/DomainButton.svelte';
 
 	interface Props {
 		href: string;
@@ -26,9 +26,9 @@
 
 <style lang="postcss">
 	.icon {
-		border-radius: var(--radius-s);
-		height: 20px;
-		width: 20px;
 		flex-shrink: 0;
+		width: 20px;
+		height: 20px;
+		border-radius: var(--radius-s);
 	}
 </style>

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import InfoMessage from '$components/InfoMessage.svelte';
 	import { dismissToast, toastStore } from '$lib/notifications/toasts';
+	import { TestId } from '$lib/testing/testIds';
 	import Markdown from '@gitbutler/ui/markdown/Markdown.svelte';
 	import { slide } from 'svelte/transition';
 </script>
@@ -9,6 +10,7 @@
 	{#each $toastStore as toast (toast.id)}
 		<div transition:slide={{ duration: 170 }}>
 			<InfoMessage
+				testId={TestId.ToastInfoMessage}
 				style={toast.style ?? 'neutral'}
 				secondaryLabel="Dismiss"
 				error={toast.error}
@@ -31,18 +33,18 @@
 
 <style>
 	.toast-controller {
-		user-select: none;
-		position: absolute;
 		display: flex;
-		flex-direction: column;
+		z-index: var(--z-blocker);
+		position: absolute;
+		right: 0;
 
 		bottom: 0;
-		right: 0;
-		padding: 12px 12px 12px 0;
-		gap: 8px;
+		flex-direction: column;
 		max-width: 480px;
-		z-index: var(--z-blocker);
-		overflow-y: auto;
 		max-height: 100%;
+		padding: 12px 12px 12px 0;
+		overflow-y: auto;
+		gap: 8px;
+		user-select: none;
 	}
 </style>

@@ -4,7 +4,8 @@ import type {
 	CheckSuite,
 	DetailedPullRequest,
 	Label,
-	PullRequest
+	PullRequest,
+	PullRequestPermissions
 } from '$lib/forge/interface/types';
 import type { RestEndpointMethodTypes } from '@octokit/rest';
 
@@ -15,7 +16,7 @@ export type CreateIssueResult = RestEndpointMethodTypes['issues']['create']['res
 export type UpdateResult = RestEndpointMethodTypes['pulls']['update']['response']['data'];
 
 export type PullRequestListItem =
-	| RestEndpointMethodTypes['pulls']['create']['response']['data']
+	| CreatePrResult
 	| RestEndpointMethodTypes['pulls']['list']['response']['data'][number];
 
 export type ChecksResult = RestEndpointMethodTypes['checks']['listForRef']['response']['data'];
@@ -23,8 +24,20 @@ export type SuitesResult =
 	RestEndpointMethodTypes['checks']['listSuitesForRef']['response']['data'];
 export type RepoResult = RestEndpointMethodTypes['repos']['get']['response']['data'];
 
+export interface GitHubRepoPermissions {
+	admin: boolean;
+	maintain?: boolean;
+	push: boolean;
+	triage?: boolean;
+	pull: boolean;
+}
+
+export type DetailedGitHubPullRequestWithPermissions = DetailedGitHubPullRequest & {
+	permissions?: GitHubRepoPermissions;
+};
+
 export function parseGitHubDetailedPullRequest(
-	response: GhResponse<DetailedGitHubPullRequest>
+	response: GhResponse<DetailedGitHubPullRequestWithPermissions>
 ): GhResponse<DetailedPullRequest> {
 	if (response.error) {
 		return response;
@@ -37,10 +50,22 @@ export function parseGitHubDetailedPullRequest(
 			name: reviewer.name || reviewer.login
 		})) || [];
 
+	const permissions: PullRequestPermissions | undefined = data.permissions
+		? { canMerge: data.permissions.push }
+		: undefined;
+
 	return {
 		data: {
 			id: data.id,
 			number: data.number,
+			author: data.user
+				? {
+						name: data.user.login || undefined,
+						email: data.user.email || undefined,
+						isBot: data.user.type.toLowerCase() === 'bot',
+						gravatarUrl: data.user.avatar_url
+					}
+				: null,
 			title: data.title,
 			body: data.body ?? undefined,
 			baseRepo: parseRemoteUrl(data.base?.repo.git_url),
@@ -60,7 +85,10 @@ export function parseGitHubDetailedPullRequest(
 			state: data.state,
 			fork: data.head?.repo?.fork ?? false,
 			reviewers,
-			commentsCount: data.comments
+			commentsCount: data.comments,
+			permissions,
+			repositorySshUrl: data.head?.repo?.ssh_url,
+			repositoryHttpsUrl: data.head?.repo?.clone_url
 		}
 	};
 }

@@ -183,8 +183,7 @@
 		<!-- Project Selection Step -->
 		<div class="selection-header">
 			<h4>Select a project in {selectedOrgSlug}</h4>
-			<Button style="secondary" onclick={() => (selectedOrgSlug = null)}
-				>Back to Organizations</Button
+			<Button style="neutral" onclick={() => (selectedOrgSlug = null)}>Back to Organizations</Button
 			>
 		</div>
 
@@ -285,34 +284,34 @@
 	}
 
 	.description {
+		margin-top: 4px;
 		color: var(--text-muted, #666);
 		font-size: 0.9rem;
-		margin-top: 4px;
 	}
 
 	.slug {
+		margin-top: 2px;
 		color: var(--text-muted, #666);
 		font-size: 0.8rem;
-		margin-top: 2px;
 	}
 
 	.empty-state {
-		text-align: center;
 		padding: 24px 0;
 		color: var(--text-muted, #666);
+		text-align: center;
 	}
 
 	.selection-header {
 		display: flex;
-		justify-content: space-between;
 		align-items: center;
+		justify-content: space-between;
 		margin-bottom: 16px;
 	}
 
 	.loading-container {
-		text-align: center;
 		padding: 32px 0;
 		color: var(--text-muted, #666);
+		text-align: center;
 	}
 
 	.selected {
@@ -321,9 +320,9 @@
 	}
 
 	.action-buttons {
-		margin-top: 20px;
 		display: flex;
 		justify-content: flex-end;
+		margin-top: 20px;
 	}
 
 	.radio-option {
@@ -334,9 +333,9 @@
 	}
 
 	.new-project-form {
-		margin-top: 10px;
 		display: flex;
 		flex-direction: column;
+		margin-top: 10px;
 		gap: 6px;
 	}
 
@@ -348,7 +347,7 @@
 	}
 
 	.create-new {
-		border-style: dashed;
 		border-width: 1px;
+		border-style: dashed;
 	}
 </style>

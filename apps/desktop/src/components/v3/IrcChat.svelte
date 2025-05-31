@@ -1,20 +1,40 @@
 <script lang="ts">
 	import IrcChannel from '$components/v3/IrcChannel.svelte';
 	import IrcChannels from '$components/v3/IrcChannels.svelte';
+	import { IrcService } from '$lib/irc/ircService.svelte';
 	import { UiState } from '$lib/state/uiState.svelte';
-	import { getContext } from '@gitbutler/shared/context';
+	import { inject } from '@gitbutler/shared/context';
+	import Button from '@gitbutler/ui/Button.svelte';
 
-	const uiState = getContext(UiState);
-	const channel = $derived(uiState.global.channel);
+	const [ircService, uiState] = inject(IrcService, UiState);
+	const currentName = $derived(uiState.global.channel.current);
 </script>
 
 <div class="irc">
 	<IrcChannels />
 	<div class="right">
-		{#if channel.current}
-			<IrcChannel type="group" channel={channel.current} autojoin />
+		{#if currentName}
+			{#if currentName.startsWith('#')}
+				<IrcChannel type="group" channel={currentName} autojoin />
+			{:else}
+				{@const chat = ircService.getChat(currentName)}
+				{#if chat.current}
+					<IrcChannel type="private" nick={chat.current.username}>
+						{#snippet headerActions()}
+							<Button
+								icon="open-link"
+								size="icon"
+								kind="ghost"
+								onclick={() => {
+									ircService.setPopup(currentName, true);
+								}}
+							/>
+						{/snippet}
+					</IrcChannel>
+				{/if}
+			{/if}
 		{:else}
-			<IrcChannel type="system" />
+			<IrcChannel type="server" />
 		{/if}
 	</div>
 </div>
@@ -25,13 +45,13 @@
 		width: 100%;
 		height: 100%;
 		overflow: hidden;
-		background-color: var(--clr-bg-1);
 		border: 1px solid var(--clr-border-2);
 		border-radius: var(--radius-l);
+		background-color: var(--clr-bg-1);
 	}
 	.right {
-		flex-grow: 1;
 		display: flex;
+		flex-grow: 1;
 		flex-direction: column;
 		height: 100%;
 		overflow: hidden;

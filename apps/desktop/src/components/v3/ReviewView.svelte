@@ -6,6 +6,7 @@
 	import { StackPublishingService } from '$lib/history/stackPublishingService';
 	import { StackService } from '$lib/stacks/stackService.svelte';
 	import { UiState } from '$lib/state/uiState.svelte';
+	import { TestId } from '$lib/testing/testIds';
 	import { getContext } from '@gitbutler/shared/context';
 
 	type Props = {
@@ -18,7 +19,6 @@
 
 	const uiState = getContext(UiState);
 
-	let drawer = $state<ReturnType<typeof Drawer>>();
 	let reviewCreation = $state<ReturnType<typeof ReviewCreation>>();
 
 	function close() {
@@ -60,7 +60,7 @@
 </script>
 
 <Drawer
-	bind:this={drawer}
+	testId={TestId.ReviewDrawer}
 	{projectId}
 	{stackId}
 	title={getTitleLabel()}
@@ -85,10 +85,10 @@
 
 <style lang="postcss">
 	.submit-review__container {
-		flex-grow: 1;
 		display: flex;
+		flex-grow: 1;
 		flex-direction: column;
-		gap: 14px;
 		overflow: hidden;
+		gap: 14px;
 	}
 </style>

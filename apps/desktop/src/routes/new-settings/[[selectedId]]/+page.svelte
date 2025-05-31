@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import SupportersBanner from '$components/SupportersBanner.svelte';
 	import SettingsPages, { type Page } from '$components/v3/SettingsPages.svelte';
 	import AiSettings from '$components/v3/profileSettings/AiSettings.svelte';
@@ -12,8 +14,6 @@
 	import { newSettingsPath } from '$lib/routes/routes.svelte';
 	import { openExternalUrl } from '$lib/utils/url';
 	import Icon from '@gitbutler/ui/Icon.svelte';
-	import { goto } from '$app/navigation';
-	import { page } from '$app/state';
 
 	const pages: Page[] = [
 		{
@@ -129,8 +129,8 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 16px;
-		border-radius: var(--radius-m);
 		border: 1px solid var(--clr-border-2);
+		border-radius: var(--radius-m);
 		background-color: var(--clr-bg-1);
 		color: var(--clr-scale-ntrl-30);
 		transition: background-color var(--transition-fast);

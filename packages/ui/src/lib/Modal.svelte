@@ -1,23 +1,17 @@
 <script lang="ts" module>
 	type T = any | unknown | undefined;
-</script>
 
-<script lang="ts" generics="T extends undefined | any = any">
-	import Button from '$lib/Button.svelte';
-	import Icon from '$lib/Icon.svelte';
-	import { focusTrap } from '$lib/utils/focusTrap';
-	import { portal } from '$lib/utils/portal';
-	import { pxToRem } from '$lib/utils/pxToRem';
-	import { onDestroy } from 'svelte';
-	import type { Snippet } from 'svelte';
+	export type ModalSize = 'medium' | 'large' | 'small' | 'xsmall' | number;
+	export type ModalType = 'info' | 'warning' | 'error' | 'success';
 
-	type Props = {
-		width?: 'medium' | 'large' | 'small' | 'xsmall' | number;
-		type?: 'info' | 'warning' | 'error' | 'success';
+	export type ModalProps = {
+		width?: ModalSize;
+		type?: ModalType;
 		title?: string;
 		closeButton?: boolean;
 		noPadding?: boolean;
 		defaultItem?: T;
+		preventCloseOnClickOutside?: boolean;
 		/**
 		 * Callback to be called when the modal is closed.
 		 *
@@ -35,6 +29,15 @@
 		controls?: Snippet<[close: () => void, item: T]>;
 		testId?: string;
 	};
+</script>
+
+<script lang="ts" generics="T extends undefined | any = any">
+	import ModalHeader from '$lib/ModalHeader.svelte';
+	import { focusTrap } from '$lib/utils/focusTrap';
+	import { portal } from '$lib/utils/portal';
+	import { pxToRem } from '$lib/utils/pxToRem';
+	import { onDestroy } from 'svelte';
+	import type { Snippet } from 'svelte';
 
 	const {
 		width = 'medium',
@@ -43,6 +46,7 @@
 		closeButton,
 		onClose,
 		onClickOutside,
+		preventCloseOnClickOutside,
 		children,
 		controls,
 		onSubmit,
@@ -50,7 +54,7 @@
 		noPadding = false,
 		testId,
 		defaultItem
-	}: Props = $props();
+	}: ModalProps = $props();
 
 	let open = $state(false);
 	let item = $state<T>(defaultItem as any);
@@ -108,8 +112,10 @@
 		use:portal={'body'}
 		class="modal-container {isClosing ? 'closing' : 'open'}"
 		class:open
-		onmousedown={(e) => {
+		onclick={(e) => {
 			e.stopPropagation();
+
+			if (preventCloseOnClickOutside) return;
 
 			if (e.target === e.currentTarget) {
 				onClickOutside?.();
@@ -125,39 +131,23 @@
 			class:large={width === 'large'}
 			class:small={width === 'small'}
 			class:xsmall={width === 'xsmall'}
-			style:width={typeof width === 'number' ? pxToRem(width) : undefined}
+			style:width={typeof width === 'number' ? `${pxToRem(width)}rem` : undefined}
 			onsubmit={(e) => {
 				e.preventDefault();
 				onSubmit?.(close, item);
 			}}
 		>
 			{#if title}
-				<div class="modal__header">
-					{#if type === 'warning'}
-						<Icon name="warning" color="warning" />
-					{/if}
-
-					{#if type === 'error'}
-						<Icon name="error" color="error" />
-					{/if}
-
-					{#if type === 'success'}
-						<Icon name="success" color="success" />
-					{/if}
-
-					<h2 class="text-14 text-bold">
-						{title}
-					</h2>
-
-					{#if closeButton}
-						<div class="close-btn">
-							<Button type="button" kind="ghost" icon="cross" onclick={close}></Button>
-						</div>
-					{/if}
-				</div>
+				<ModalHeader {type} {closeButton} oncloseclick={close}>
+					{title}
+				</ModalHeader>
 			{/if}
 
-			<div class="modal__body text-13 text-body" class:no-padding={noPadding}>
+			<div
+				class="modal__body text-13 text-body"
+				class:padding-top={!title}
+				class:no-padding={noPadding}
+			>
 				{#if children}
 					{@render children(item, close)}
 				{/if}
@@ -174,17 +164,16 @@
 
 <style lang="postcss">
 	.modal-container {
+		display: flex;
 		z-index: var(--z-modal);
 		position: fixed;
 		top: 0;
 		left: 0;
+		align-items: center;
+		justify-content: center;
 		width: 100%;
 		height: 100%;
 		padding: 24px;
-
-		display: flex;
-		justify-content: center;
-		align-items: center;
 
 		background-color: var(--clr-overlay-bg);
 	}
@@ -208,35 +197,25 @@
 	.modal-form {
 		display: flex;
 		flex-direction: column;
-
 		max-height: calc(100vh - 80px);
+		overflow: hidden;
+		border: 1px solid var(--clr-border-2);
 		border-radius: var(--radius-l);
 		background-color: var(--clr-bg-1);
-		border: 1px solid var(--clr-border-2);
 		box-shadow: var(--fx-shadow-l);
-	}
-
-	.modal__header {
-		position: relative;
-		display: flex;
-		align-items: center;
-		padding: 16px;
-		padding-bottom: 0;
-		gap: 8px;
-	}
-
-	.close-btn {
-		position: absolute;
-		top: 10px;
-		right: 10px;
+		user-select: text;
 	}
 
 	.modal__body {
 		display: flex;
 		flex-direction: column;
-		padding: 16px;
-		line-height: 160%;
+		padding: 0 16px 16px 16px;
 		overflow: hidden;
+		line-height: 160%;
+
+		&.padding-top {
+			padding-top: 16px;
+		}
 
 		&.no-padding {
 			padding: 0;
@@ -249,16 +228,16 @@
 	}
 
 	.modal__footer {
+		display: flex;
 		position: sticky;
 		bottom: 0;
-		display: flex;
-		width: 100%;
 		justify-content: flex-end;
-		gap: 8px;
+		width: 100%;
 		padding: 16px;
+		gap: 8px;
 		border-top: 1px solid var(--clr-border-2);
-		background-color: var(--clr-bg-1);
 		border-radius: 0 0 var(--radius-l) var(--radius-l);
+		background-color: var(--clr-bg-1);
 	}
 
 	/* ANIMATION */

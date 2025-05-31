@@ -1,41 +1,51 @@
 <script lang="ts">
 	import ReduxResult from '$components/ReduxResult.svelte';
-	import Resizer from '$components/Resizer.svelte';
+	import ActionLog from '$components/v3/ActionLog.svelte';
 	import BranchView from '$components/v3/BranchView.svelte';
 	import CommitView from '$components/v3/CommitView.svelte';
+	import MainViewport from '$components/v3/MainViewport.svelte';
+	import MultiStackView from '$components/v3/MultiStackView.svelte';
 	import NewCommitView from '$components/v3/NewCommitView.svelte';
 	import ReviewView from '$components/v3/ReviewView.svelte';
 	import SelectionView from '$components/v3/SelectionView.svelte';
 	import WorktreeChanges from '$components/v3/WorktreeChanges.svelte';
-	import StackTabs from '$components/v3/stackTabs/StackTabs.svelte';
+	import { SettingsService } from '$lib/config/appSettingsV2';
+	import { isParsedError } from '$lib/error/parser';
 	import { Focusable, FocusManager } from '$lib/focus/focusManager.svelte';
-	import { focusable } from '$lib/focus/focusable.svelte';
+	import { IdSelection } from '$lib/selection/idSelection.svelte';
 	import { StackService } from '$lib/stacks/stackService.svelte';
 	import { UiState } from '$lib/state/uiState.svelte';
 	import { inject } from '@gitbutler/shared/context';
-	import { remToPx } from '@gitbutler/ui/utils/remToPx';
-	import { type Snippet } from 'svelte';
+	import Segment from '@gitbutler/ui/segmentControl/Segment.svelte';
+	import SegmentControl from '@gitbutler/ui/segmentControl/SegmentControl.svelte';
 	import type { SelectionId } from '$lib/selection/key';
 
 	interface Props {
 		projectId: string;
 		stackId?: string;
-		stack: Snippet;
 	}
 
-	const { stackId, projectId, stack }: Props = $props();
+	const { stackId, projectId }: Props = $props();
 
-	const [stackService, uiState, focusManager] = inject(StackService, UiState, FocusManager);
+	const [stackService, uiState, focusManager, idSelection, settingsService] = inject(
+		StackService,
+		UiState,
+		FocusManager,
+		IdSelection,
+		SettingsService
+	);
+	const worktreeSelection = idSelection.getById({ type: 'worktree' });
 	const stacksResult = $derived(stackService.stacks(projectId));
+	const settingsStore = $derived(settingsService.appSettings);
+	const canUseActions = $derived($settingsStore?.featureFlags.actions ?? false);
 
 	const projectState = $derived(uiState.project(projectId));
 	const drawerPage = $derived(projectState.drawerPage);
 	const drawerIsFullScreen = $derived(projectState.drawerFullScreen);
-	const isCommitting = $derived(drawerPage.current === 'new-commit');
 
 	let focusGroup = $derived(
 		focusManager.radioGroup({
-			triggers: [Focusable.UncommittedChanges, Focusable.ChangedFiles]
+			triggers: [Focusable.UncommittedChanges, Focusable.Drawer, Focusable.ViewportRight]
 		})
 	);
 
@@ -46,59 +56,77 @@
 	const upstream = $derived(!!currentSelection?.upstream);
 
 	const selectionId: SelectionId = $derived.by(() => {
-		if (focusGroup.current === Focusable.ChangedFiles && currentSelection && stackId) {
-			if (currentSelection.commitId) {
-				return {
-					type: 'commit',
-					commitId: currentSelection.commitId
-				};
-			}
-			return {
-				type: 'branch',
-				branchName: currentSelection.branchName,
-				stackId
-			};
+		const branchName = currentSelection?.branchName;
+		if (focusGroup.current === Focusable.UncommittedChanges && worktreeSelection.entries.size > 0) {
+			return { type: 'worktree' };
 		}
+		if (currentSelection && stackId && branchName) {
+			if (currentSelection.commitId) {
+				const selectionId = { type: 'commit', commitId: currentSelection.commitId } as const;
+				if (idSelection.hasItems(selectionId)) return selectionId;
+			}
+			const selectionId = { type: 'branch', stackId: stackId, branchName } as const;
+			if (idSelection.hasItems(selectionId)) return selectionId;
+		}
+
 		return { type: 'worktree' };
 	});
 
-	const leftWidth = $derived(uiState.global.leftWidth);
-	const stacksViewWidth = $derived(uiState.global.stacksViewWidth);
+	let view = $state<'worktree' | 'action-log'>('worktree');
 
-	let leftDiv = $state<HTMLElement>();
-	let stacksViewEl = $state<HTMLElement>();
-
-	let tabsWidth = $state<number>();
+	function onerror(err: unknown) {
+		// Clear selection if branch not found.
+		if (isParsedError(err) && err.code === 'errors.branch.notfound') {
+			stackSelection?.set(undefined);
+			console.warn('Workspace selection cleared');
+		}
+	}
 </script>
 
-<div class="workspace" use:focusable={{ id: Focusable.Workspace }}>
-	<div
-		class="changed-files-view"
-		bind:this={leftDiv}
-		style:width={leftWidth.current + 'rem'}
-		use:focusable={{ id: Focusable.WorkspaceLeft, parentId: Focusable.Workspace }}
-	>
-		<WorktreeChanges {projectId} {stackId} />
-		<Resizer
-			viewport={leftDiv}
-			direction="right"
-			minWidth={14}
-			borderRadius="ml"
-			onWidth={(value) => (leftWidth.current = value)}
-		/>
-	</div>
-	<div
-		class="main-view"
-		use:focusable={{ id: Focusable.WorkspaceMiddle, parentId: Focusable.Workspace }}
-	>
-		{#if !drawerIsFullScreen.current}
-			<SelectionView {projectId} {selectionId} />
+<MainViewport
+	name="workspace"
+	leftWidth={{ default: 280, min: 240 }}
+	rightWidth={{ default: 380, min: 240 }}
+>
+	{#snippet left()}
+		{#if canUseActions}
+			<div class="left-view-toggle">
+				<SegmentControl
+					fullWidth
+					defaultIndex={view === 'worktree' ? 0 : 1}
+					onselect={(id) => {
+						view = id as 'worktree' | 'action-log';
+					}}
+					size="small"
+				>
+					<Segment id="worktree" icon="file-changes" />
+					<Segment id="action-log" icon="ai" />
+				</SegmentControl>
+			</div>
 		{/if}
 
+		{#if !canUseActions || view === 'worktree'}
+			<WorktreeChanges {projectId} {stackId} active={selectionId.type === 'worktree'} />
+		{:else if canUseActions && view === 'action-log'}
+			<ActionLog {projectId} />
+		{/if}
+	{/snippet}
+
+	{#snippet middle()}
+		{#if !drawerIsFullScreen.current}
+			<SelectionView {projectId} {selectionId} {stackId} draggableFiles />
+		{/if}
 		{#if drawerPage.current === 'new-commit'}
 			<NewCommitView {projectId} {stackId} />
 		{:else if drawerPage.current === 'branch' && stackId && branchName}
-			<BranchView {stackId} {projectId} {branchName} />
+			<BranchView
+				{stackId}
+				{projectId}
+				{branchName}
+				{onerror}
+				active={selectionId.type !== 'worktree'}
+				draggableFiles
+			/>
 		{:else if drawerPage.current === 'review' && stackId && branchName}
 			<ReviewView {stackId} {projectId} {branchName} />
 		{:else if branchName && commitId && stackId}
@@ -111,109 +139,43 @@
 					commitId,
 					upstream
 				}}
+				active={selectionId.type !== 'worktree'}
+				{onerror}
 			/>
 		{/if}
-	</div>
+	{/snippet}
 
-	<div
-		class="stacks-view-wrap"
-		bind:this={stacksViewEl}
-		style:width={stacksViewWidth.current + 'rem'}
-		use:focusable={{ id: Focusable.WorkspaceRight, parentId: Focusable.Workspace }}
-	>
+	{#snippet right()}
 		<ReduxResult {projectId} result={stacksResult?.current}>
+			{#snippet loading()}
+				<div class="stacks-view-skeleton"></div>
+			{/snippet}
+
 			{#snippet children(stacks)}
-				<StackTabs
+				<MultiStackView
 					{projectId}
 					{stacks}
 					selectedId={stackId}
-					{isCommitting}
-					bind:width={tabsWidth}
+					active={focusGroup.current !== Focusable.UncommittedChanges}
 				/>
-				<div
-					class="contents"
-					class:rounded={tabsWidth! <= (remToPx(stacksViewWidth.current - 0.5) as number)}
-					class:dotted={stacks.length > 0}
-				>
-					{@render stack()}
-				</div>
 			{/snippet}
 		</ReduxResult>
-		<Resizer
-			viewport={stacksViewEl}
-			direction="left"
-			minWidth={16}
-			borderRadius="ml"
-			onWidth={(value) => {
-				stacksViewWidth.current = value;
-			}}
-		/>
-	</div>
-</div>
+	{/snippet}
+</MainViewport>
 
 <style>
-	.workspace {
-		display: flex;
-		flex: 1;
-		gap: 8px;
-		align-items: stretch;
-		height: 100%;
+	/* SKELETON LOADING */
+	.stacks-view-skeleton {
 		width: 100%;
-		position: relative;
-	}
-
-	.changed-files-view {
 		height: 100%;
-		display: flex;
-		flex-direction: column;
-		justify-content: flex-start;
-		position: relative;
-		background-color: var(--clr-bg-1);
-		border-radius: var(--radius-ml);
 		border: 1px solid var(--clr-border-2);
-		flex-shrink: 0;
-		overflow: hidden;
-	}
-
-	.stacks-view-wrap {
-		height: 100%;
-		display: flex;
-		flex-direction: column;
-		justify-content: flex-start;
-		position: relative;
-		flex-shrink: 0;
-	}
-
-	.main-view {
-		display: flex;
-		flex-direction: column;
-		flex-grow: 1;
 		border-radius: var(--radius-ml);
-		overflow-x: hidden;
-		position: relative;
-		gap: 8px;
-		min-width: 400px;
 	}
 
-	.contents {
+	.left-view-toggle {
 		display: flex;
-		flex-direction: column;
-		flex: 1;
-		overflow: hidden;
-
-		border-radius: 0 0 var(--radius-ml) var(--radius-ml);
-		border: 1px solid var(--clr-border-2);
-	}
-
-	.dotted {
-		background-image: radial-gradient(
-			oklch(from var(--clr-scale-ntrl-50) l c h / 0.5) 0.6px,
-			#ffffff00 0.6px
-		);
-		background-size: 6px 6px;
-	}
-
-	.rounded {
-		border-radius: 0 var(--radius-ml) var(--radius-ml) var(--radius-ml);
+		align-items: center;
+		justify-content: center;
+		height: 40px;
 	}
 </style>

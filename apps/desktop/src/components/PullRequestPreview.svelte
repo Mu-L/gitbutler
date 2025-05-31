@@ -1,5 +1,6 @@
 <script lang="ts">
 	// This is always displayed in the context of not having a cooresponding vbranch or remote
+	import { goto } from '$app/navigation';
 	import BaseBranchService from '$lib/baseBranch/baseBranchService.svelte';
 	import { VirtualBranchService } from '$lib/branches/virtualBranchService';
 	import { showError } from '$lib/notifications/toasts';
@@ -14,7 +15,6 @@
 	import Link from '@gitbutler/ui/link/Link.svelte';
 	import Markdown from '@gitbutler/ui/markdown/Markdown.svelte';
 	import type { PullRequest } from '$lib/forge/interface/types';
-	import { goto } from '$app/navigation';
 
 	const { pr }: { pr: PullRequest } = $props();
 
@@ -129,7 +129,7 @@
 		<div class="card__footer">
 			<Button
 				style="pop"
-				tooltip="Does not create a commit. Can be toggled."
+				tooltip="Fetch from the remote and apply the branch from there"
 				onclick={async () => createRemoteModal?.show()}>Apply from fork</Button
 			>
 		</div>
@@ -140,17 +140,16 @@
 	.wrapper {
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
 		max-width: 896px;
+		gap: 16px;
 	}
 	.card__content {
 		gap: 12px;
 	}
 	.card__title-pr {
-		opacity: 0.4;
 		margin-left: 4px;
+		opacity: 0.4;
 	}
-
 	.fork-notice {
 		margin-bottom: 8px;
 	}

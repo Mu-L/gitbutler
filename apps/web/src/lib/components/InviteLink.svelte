@@ -1,9 +1,9 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { OrganizationService } from '@gitbutler/shared/organizations/organizationService';
 	import Button from '@gitbutler/ui/Button.svelte';
 	import Textbox from '@gitbutler/ui/Textbox.svelte';
 	import { getContext } from 'svelte';
-	import { browser } from '$app/environment';
 
 	interface Props {
 		organizationSlug: string;
@@ -127,10 +127,10 @@
 	}
 
 	.info-text {
+		margin-top: 0.5rem;
 		color: #718096;
 		font-style: italic;
 		font-size: 0.8rem;
-		margin-top: 0.5rem;
 	}
 
 	.reset-container {
@@ -140,9 +140,9 @@
 	}
 
 	.error-text {
-		color: #e53e3e;
-		font-size: 0.8rem;
 		margin-top: 0.5rem;
+		color: #e53e3e;
 		font-weight: bold;
+		font-size: 0.8rem;
 	}
 </style>

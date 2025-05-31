@@ -2,6 +2,7 @@
 	import Badge from '$lib/Badge.svelte';
 	import Button from '$lib/Button.svelte';
 	import Icon from '$lib/Icon.svelte';
+	import ExecutableLabel from '$lib/file/ExecutableLabel.svelte';
 	import FileName from '$lib/file/FileName.svelte';
 	import FileStatusBadge from '$lib/file/FileStatusBadge.svelte';
 	import LineChangeStats from '$lib/file/LineChangeStats.svelte';
@@ -16,6 +17,7 @@
 		linesAdded?: number;
 		linesRemoved?: number;
 		conflicted?: boolean;
+		executable?: boolean;
 		oncontextmenu?: (e: MouseEvent) => void;
 		oncloseclick?: () => void;
 	}
@@ -25,10 +27,11 @@
 		filePath,
 		fileStatus,
 		fileStatusTooltip,
-		draggable = true,
+		draggable,
 		linesAdded = 0,
 		linesRemoved = 0,
-		conflicted = false,
+		conflicted,
+		executable,
 		oncontextmenu,
 		oncloseclick
 	}: Props = $props();
@@ -39,7 +42,6 @@
 	{id}
 	class="file-header"
 	class:draggable
-	{draggable}
 	oncontextmenu={(e) => {
 		if (oncontextmenu) {
 			e.preventDefault();
@@ -60,6 +62,10 @@
 
 	<div class="file-header__statuses">
 		<LineChangeStats added={linesAdded} removed={linesRemoved} />
+
+		{#if executable}
+			<ExecutableLabel />
+		{/if}
 
 		{#if fileStatus}
 			<FileStatusBadge tooltip={fileStatusTooltip} status={fileStatus} style="full" />
@@ -85,9 +91,9 @@
 	.file-header {
 		display: flex;
 		align-items: center;
-		gap: 12px;
-		padding: 12px 10px 12px 14px;
 		width: 100%;
+		padding: 12px 10px 12px 14px;
+		gap: 12px;
 		background-color: var(--clr-bg-1);
 
 		&.draggable {
@@ -109,8 +115,8 @@
 
 	.file-header__name {
 		display: flex;
-		align-items: center;
 		flex: 1;
+		align-items: center;
 		overflow: hidden;
 	}
 
@@ -119,10 +125,10 @@
 		align-items: center;
 		justify-content: center;
 		width: 10px;
-		margin-left: -8px;
 		margin-right: -10px;
-		opacity: 0;
+		margin-left: -8px;
 		color: var(--clr-text-3);
+		opacity: 0;
 		transition:
 			width var(--transition-fast),
 			opacity var(--transition-fast);

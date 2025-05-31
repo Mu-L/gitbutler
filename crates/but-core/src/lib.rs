@@ -47,7 +47,7 @@ use gix::refs::FullNameRef;
 use serde::Serialize;
 use std::any::Any;
 use std::ops::{Deref, DerefMut};
-use std::path::Path;
+use std::path::PathBuf;
 
 /// Functions to obtain changes between various items.
 pub mod diff;
@@ -64,10 +64,12 @@ pub mod unified_diff;
 /// utilities for command-invocation.
 pub mod cmd;
 
-mod settings;
-pub use settings::git::GitConfigSettings;
+/// Various settings
+pub mod settings;
+pub use settings::git::types::GitConfigSettings;
 
 mod repo_ext;
+use crate::ref_metadata::ValueInfo;
 pub use repo_ext::RepositoryExt;
 
 /// Various types
@@ -99,6 +101,22 @@ pub trait RefMetadata {
         &self,
         ref_name: &gix::refs::FullNameRef,
     ) -> anyhow::Result<Self::Handle<ref_metadata::Branch>>;
+
+    /// Like [`branch()`](Self::branch()), but instead of possibly returning default values, return an
+    /// optional branch instead.
+    ///
+    /// This means the returned branch data is never the default value.
+    fn branch_opt(
+        &self,
+        ref_name: &gix::refs::FullNameRef,
+    ) -> anyhow::Result<Option<Self::Handle<ref_metadata::Branch>>> {
+        let branch = self.branch(ref_name)?;
+        Ok(if branch.is_default() {
+            None
+        } else {
+            Some(branch)
+        })
+    }
 
     /// Set workspace metadata to match `value`.
     fn set_workspace(
@@ -176,7 +194,7 @@ impl std::fmt::Display for Reference {
 /// Open a repository in such a way that the object cache is set to accelerate merge operations.
 ///
 /// As it depends on the size of the tree, the index will be loaded for that.
-pub fn open_repo_for_merging(path: &Path) -> anyhow::Result<gix::Repository> {
+pub fn open_repo_for_merging(path: impl Into<PathBuf>) -> anyhow::Result<gix::Repository> {
     let mut repo = gix::open(path)?;
     let bytes = repo.compute_object_cache_size_for_tree_diffs(&***repo.index_or_empty()?);
     repo.object_cache_size_if_unset(bytes);
@@ -188,7 +206,7 @@ pub fn open_repo_for_merging(path: &Path) -> anyhow::Result<gix::Repository> {
 /// specific use-cases.
 ///
 /// Note that the repository isn't discovered, but must exist at `path`.
-pub fn open_repo(path: &Path) -> anyhow::Result<gix::Repository> {
+pub fn open_repo(path: impl Into<PathBuf>) -> anyhow::Result<gix::Repository> {
     Ok(gix::open(path)?)
 }
 

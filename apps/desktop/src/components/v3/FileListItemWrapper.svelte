@@ -1,53 +1,65 @@
 <!-- This is a V3 replacement for `FileListItemWrapper.svelte` -->
 <script lang="ts">
 	import FileContextMenu from '$components/v3/FileContextMenu.svelte';
+	import { conflictEntryHint } from '$lib/conflictEntryPresence';
 	import { draggableChips } from '$lib/dragging/draggable';
 	import { ChangeDropData } from '$lib/dragging/draggables';
 	import { getFilename } from '$lib/files/utils';
-	import { DiffService } from '$lib/hunks/diffService.svelte';
+	import { previousPathBytesFromTreeChange, type TreeChange } from '$lib/hunks/change';
 	import { ChangeSelectionService } from '$lib/selection/changeSelection.svelte';
 	import { IdSelection } from '$lib/selection/idSelection.svelte';
 	import { key, type SelectionId } from '$lib/selection/key';
+	import { TestId } from '$lib/testing/testIds';
 	import { computeChangeStatus } from '$lib/utils/fileStatus';
 	import { getContext } from '@gitbutler/shared/context';
 	import FileListItemV3 from '@gitbutler/ui/file/FileListItemV3.svelte';
 	import FileViewHeader from '@gitbutler/ui/file/FileViewHeader.svelte';
 	import { stickyHeader } from '@gitbutler/ui/utils/stickyHeader';
-	import type { TreeChange } from '$lib/hunks/change';
+	import type { ConflictEntriesObj } from '$lib/files/conflicts';
 	import type { Rename } from '$lib/hunks/change';
 	import type { UnifiedDiff } from '$lib/hunks/diff';
 
 	interface Props {
 		projectId: string;
+		stackId?: string;
 		change: TreeChange;
+		allChanges?: TreeChange[];
 		diff?: UnifiedDiff;
 		selectionId: SelectionId;
 		selected?: boolean;
 		isHeader?: boolean;
-		listActive?: boolean;
+		active?: boolean;
 		isLast?: boolean;
 		listMode: 'list' | 'tree';
 		linesAdded?: number;
 		linesRemoved?: number;
 		depth?: number;
+		executable?: boolean;
 		showCheckbox?: boolean;
+		draggable: boolean;
 		onclick?: (e: MouseEvent) => void;
 		onkeydown?: (e: KeyboardEvent) => void;
 		onCloseClick?: () => void;
+		conflictEntries?: ConflictEntriesObj;
 	}
 
 	const {
 		change,
+		allChanges,
 		diff,
 		selectionId,
 		projectId,
+		stackId,
 		selected,
 		isHeader,
-		listActive,
+		active,
 		isLast,
 		listMode,
 		depth,
+		executable,
 		showCheckbox,
+		conflictEntries,
+		draggable,
 		onclick,
 		onkeydown,
 		onCloseClick
@@ -55,7 +67,6 @@
 
 	const idSelection = getContext(IdSelection);
 	const changeSelection = getContext(ChangeSelectionService);
-	const diffService = getContext(DiffService);
 
 	let contextMenu = $state<ReturnType<typeof FileContextMenu>>();
 	let draggableEl: HTMLDivElement | undefined = $state();
@@ -63,10 +74,6 @@
 	const selection = $derived(changeSelection.getById(change.path));
 	const indeterminate = $derived(selection.current && selection.current.type === 'partial');
 	const selectedChanges = $derived(idSelection.treeChanges(projectId, selectionId));
-	const diffResult = $derived(diffService.getDiff(projectId, change));
-
-	const isBinary = $derived(diffResult.current.data?.type === 'Binary');
-	const isUncommitted = $derived(selectionId?.type === 'worktree');
 
 	const previousTooltipText = $derived(
 		(change.status.subject as Rename).previousPath
@@ -89,10 +96,11 @@
 			changeSelection.remove(change.path);
 		} else {
 			const { path, pathBytes } = change;
-			changeSelection.add({
+			changeSelection.upsert({
 				type: 'full',
 				path,
-				pathBytes
+				pathBytes,
+				previousPathBytes: previousPathBytesFromTreeChange(change)
 			});
 		}
 	}
@@ -113,9 +121,13 @@
 			changeSelection.remove(change.path);
 		}
 	}
+
+	const conflict = $derived(conflictEntries ? conflictEntries.entries[change.path] : undefined);
+	const draggableDisabled = $derived(!draggable || showCheckbox || selectionId.type === 'branch');
 </script>
 
 <div
+	data-testid={TestId.FileListItem}
 	use:stickyHeader={{
 		disabled: !isHeader
 	}}
@@ -125,17 +137,19 @@
 	use:draggableChips={{
 		label: getFilename(change.path),
 		filePath: change.path,
-		data: new ChangeDropData(change, idSelection, selectionId),
+		data: new ChangeDropData(change, idSelection, allChanges ?? [change], selectionId, stackId),
 		viewportId: 'board-viewport',
 		selector: '.selected-draggable',
-		disabled: showCheckbox
+		disabled: draggableDisabled,
+		chipType: 'file'
 	}}
 >
 	<FileContextMenu
 		bind:this={contextMenu}
+		{projectId}
+		{stackId}
 		trigger={draggableEl}
-		{isUncommitted}
-		{isBinary}
+		{selectionId}
 		{unSelectChanges}
 	/>
 
@@ -143,10 +157,11 @@
 		<FileViewHeader
 			filePath={change.path}
 			fileStatus={computeChangeStatus(change)}
-			draggable={!showCheckbox}
+			draggable={!showCheckbox && draggable}
 			linesAdded={lineChangesStat?.added}
 			linesRemoved={lineChangesStat?.removed}
 			fileStatusTooltip={previousTooltipText}
+			{executable}
 			oncontextmenu={(e) => {
 				e.stopPropagation();
 				e.preventDefault();
@@ -164,14 +179,16 @@
 			fileStatusTooltip={previousTooltipText}
 			{listMode}
 			checked={!!selection.current}
-			{listActive}
+			{active}
 			{indeterminate}
 			{isLast}
 			{depth}
-			draggable={!showCheckbox}
+			{executable}
+			draggable={!draggableDisabled}
 			{onkeydown}
 			locked={false}
-			conflicted={false}
+			conflicted={!!conflict}
+			conflictHint={conflict ? conflictEntryHint(conflict) : undefined}
 			{onclick}
 			oncheck={onCheck}
 			oncontextmenu={onContextMenu}

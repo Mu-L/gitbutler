@@ -3,8 +3,10 @@
 		ref: HTMLInputElement | undefined;
 		value: string;
 		showCount?: boolean;
-		oninput: (e: Event) => void;
+		oninput?: (e: Event) => void;
+		onchange?: (value: string) => void;
 		onkeydown: (e: KeyboardEvent) => void;
+		testId?: string;
 	}
 
 	let {
@@ -12,7 +14,9 @@
 		value = $bindable(),
 		showCount = true,
 		oninput,
-		onkeydown
+		onchange,
+		onkeydown,
+		testId
 	}: Props = $props();
 
 	let charsCount = $state(value.length);
@@ -21,6 +25,7 @@
 <!-- svelte-ignore a11y_autofocus -->
 <div class="message-editor-input">
 	<input
+		data-testid={testId}
 		bind:this={ref}
 		placeholder="Commit title"
 		class="text-14 text-semibold text-input"
@@ -30,8 +35,9 @@
 		oninput={(e: Event) => {
 			const input = e.currentTarget as HTMLInputElement;
 			charsCount = input.value.length;
-			oninput(e);
+			oninput?.(e);
 		}}
+		onchange={(e) => onchange?.(e.currentTarget.value)}
 		{onkeydown}
 	/>
 	{#if charsCount > 0 && showCount}
@@ -43,8 +49,8 @@
 
 <style lang="postcss">
 	.text-input {
-		padding: 8px 12px;
 		width: 100%;
+		padding: 8px 12px;
 	}
 
 	.message-editor-input {
@@ -55,28 +61,28 @@
 		position: absolute;
 		right: 6px;
 		bottom: 50%;
-		transform: translateY(50%);
-		color: var(--clr-text-2);
 		padding: 6px;
+		transform: translateY(50%);
 		background-color: var(--clr-bg-1);
+		color: var(--clr-text-2);
 
 		& span {
 			opacity: 0.6;
 		}
 
 		&:after {
-			content: '';
 			position: absolute;
 			top: 0;
 			left: 0;
-			transform: translateX(-90%);
 			width: 100%;
 			height: 100%;
+			transform: translateX(-90%);
 			background: linear-gradient(
 				to right,
 				oklch(from var(--clr-bg-1) l c h / 0) 00%,
 				var(--clr-bg-1) 90%
 			);
+			content: '';
 		}
 	}
 </style>

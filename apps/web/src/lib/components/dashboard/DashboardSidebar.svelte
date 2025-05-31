@@ -19,9 +19,9 @@
 <div class="sidebar">
 	<div class="tabs">
 		{#each tabs as tab}
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<!-- svelte-ignore a11y_click_events_have_key_events -->
-			<div
+			<button
+				type="button"
+				aria-label="tab"
 				class="text-13 text-bold tab"
 				class:current={currentTab === tab.key}
 				onclick={() => {
@@ -29,7 +29,7 @@
 				}}
 			>
 				{tab.label}
-			</div>
+			</button>
 		{/each}
 	</div>
 	<div class="content">
@@ -43,12 +43,11 @@
 
 <style lang="postcss">
 	.sidebar {
+		align-self: flex-start;
+		overflow: hidden;
 		border: 1px solid var(--clr-border-2);
 		border-radius: var(--radius-l);
-
 		background-color: var(--clr-bg-1);
-
-		overflow: hidden;
 	}
 
 	.tabs {
@@ -57,29 +56,29 @@
 	}
 
 	.tab {
-		cursor: pointer;
-		text-align: center;
 		flex-grow: 1;
-		background-color: var(--clr-bg-2);
+
+		padding: 16px 0;
 		border: 1px solid var(--clr-border-2);
 		border-top: none;
 		border-right: none;
-
-		padding: 16px 0;
+		background-color: var(--clr-bg-2);
+		text-align: center;
+		cursor: pointer;
 
 		&:first-child {
 			border-left: none;
 		}
 
 		&.current {
-			background-color: var(--clr-bg-1);
 			border-bottom: none;
+			background-color: var(--clr-bg-1);
 		}
 	}
 
 	.content {
-		max-height: calc(75vh - 100px);
 		min-height: 24px;
+		max-height: calc(75vh - 100px);
 
 		overflow-x: auto;
 	}

@@ -17,7 +17,7 @@
 	});
 </script>
 
-<div role="presentation" class="file-name">
+<div class="file-name">
 	<FileIcon fileName={fileNameAndPath.filename} size={16} />
 	<span class="text-{textSize} text-semibold file-name__name truncate">
 		{fileNameAndPath.filename}
@@ -46,50 +46,49 @@
 <style lang="postcss">
 	.file-name {
 		display: flex;
-		align-items: center;
 		flex-shrink: 1;
-		min-width: 32px;
-		gap: 6px;
+		align-items: center;
 		width: 100%;
+		min-width: 32px;
 		overflow: hidden;
+		gap: 6px;
 	}
 
 	.file-name__name {
-		flex-shrink: 1;
 		flex-grow: 0;
+		flex-shrink: 1;
 		min-width: 40px;
-		pointer-events: none;
 		color: var(--clt-text-1);
+		pointer-events: none;
 	}
 
 	.file-name__path-container {
 		display: flex;
-		justify-content: flex-start;
-		flex-shrink: 0;
 		flex-grow: 1;
+		flex-shrink: 0;
 		flex-basis: 0px;
-		text-align: left;
+		justify-content: flex-start;
 		min-width: 16px;
 		overflow: hidden;
+		text-align: left;
 	}
 
 	.file-name__path {
 		display: flex;
 		align-items: center;
+		max-width: 100%;
 		color: var(--clt-text-1);
 		line-height: 120%;
-		opacity: 0.3;
-		max-width: 100%;
 		text-align: left;
+		opacity: 0.3;
 	}
 
 	.file-name__path--first,
 	.file-name__path--last {
-		direction: rtl;
 		min-width: 2ch;
 	}
-
 	.file-name__path--first {
 		flex: 1;
+		direction: rtl;
 	}
 </style>

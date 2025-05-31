@@ -16,7 +16,13 @@ async fn hunk_locking_confused_by_line_number_shift() -> anyhow::Result<()> {
     repo.commit_all("initial commit");
     repo.push();
 
-    set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap()).unwrap();
+    set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     // Introduce a change that should lock the last change to the first branch.
     lines[8] = "modification 1 to line 8".to_string();
@@ -41,6 +47,7 @@ async fn hunk_locking_confused_by_line_number_shift() -> anyhow::Result<()> {
             selected_for_changes: Some(true),
             ..Default::default()
         },
+        ctx.project().exclusive_worktree_access().write_permission(),
     )
     .unwrap();
 
@@ -93,7 +100,13 @@ async fn hunk_locking_with_deleted_lines_only() -> anyhow::Result<()> {
     repo.commit_all("initial commit");
     repo.push();
 
-    set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap()).unwrap();
+    set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     // Introduce a change that should lock the last change to the first branch.
     let mut lines = repo.gen_file("file.txt", 2);
@@ -118,6 +131,7 @@ async fn hunk_locking_with_deleted_lines_only() -> anyhow::Result<()> {
             selected_for_changes: Some(true),
             ..Default::default()
         },
+        ctx.project().exclusive_worktree_access().write_permission(),
     )
     .unwrap();
 

@@ -1,9 +1,16 @@
-import { lineIdKey, parseHunk, type LineId } from '@gitbutler/ui/utils/diffParsing';
+import { memoize } from '@gitbutler/shared/memoization';
+import {
+	lineIdKey,
+	parseHunk,
+	SectionType,
+	type LineId,
+	type LineLock
+} from '@gitbutler/ui/utils/diffParsing';
 import { hashCode } from '@gitbutler/ui/utils/string';
 import { Transform, Type } from 'class-transformer';
+import type { HunkLocks } from '$lib/dependencies/dependencies';
 import type { Prettify } from '@gitbutler/shared/utils/typeUtils';
 import 'reflect-metadata';
-
 export class RemoteHunk {
 	diff!: string;
 	hash?: string;
@@ -77,6 +84,61 @@ export type HunkHeader = {
 	readonly newLines: number;
 };
 
+/**
+ * Represents a loose association between a hunk and a stack.
+ * A hunk being assigned to a stack means that upon unapplying the stack,
+ * the associated hunks will be dumped into a WIP commit and unapplid together with the stack.
+ *
+ * The hunk assignments are set by the user but also the backednd reconciles those assignments
+ * with the workspace hunks when they are updated on disk.
+ *
+ * Additionally, the hunk dependencies (locking) affects what assignment is possible.
+ */
+export type HunkAssignment = {
+	/** The hunk that is being assigned. Together with path_bytes, this identifies the hunk.
+	 * If the file is binary, or too large to load, this will be None and in this case the path name is the only identity.
+	 */
+	readonly hunkHeader: HunkHeader;
+	/** The file path of the hunk. Used for display. */
+	readonly path: string;
+	/** The file path of the hunk in bytes. Used to correctly communicate to the backed when creating new assignments */
+	readonly pathBytes: number[];
+	/** The stack to which the hunk is assigned. If None, the hunk is not assigned to any stack (i.e. it belongs in the unassigned area */
+	readonly stackId: string | null;
+	/**
+	 * The dependencies(locks) that the hunk assignment (and the underlying hunk) has.
+	 * This determines where the hunk can be assigned.
+	 */
+	readonly hunkLocks: HunkLock[];
+};
+
+/**
+ * A request to update a hunk assignment. If a file has multiple hunks, the UI client needs to send a list of assignment requests with the appropriate hunk headers.
+ */
+export type HunkAssignmentRequest = {
+	/**
+	 * The hunk that is being assigned. Together with path_bytes, this identifies the hunk.
+	 * If the file is binary, or too large to load, this will be None and in this case the path name is the only identity.
+	 * If the file has hunk headers, then header info MUST be provided.
+	 */
+	hunkHeader: HunkHeader;
+	/** The file path of the hunk in bytes. */
+	pathBytes: number[];
+	/**
+	 * The stack to which the hunk is assigned. If set to None, the hunk is set as "unassigned".
+	 * If a stack id is set, it must be one of the applied stacks.
+	 */
+	stackId: string | null;
+};
+
+/** Indicates that the assignment request was rejected due to locking - the hunk depends on a commit in the stack it is currently in. */
+export type AssignmentRejection = {
+	/** The request that was rejected. */
+	request: HunkAssignmentRequest;
+	/** The locks that caused the rejection. */
+	locks: HunkLock[];
+};
+
 type DeltaLineGroup = {
 	type: DeltaLineType;
 	lines: LineId[];
@@ -146,6 +208,8 @@ function lineType(line: LineId): DeltaLineType | undefined {
 	return undefined;
 }
 
+const memoizedParseHunk = memoize(parseHunk);
+
 /**
  * Group the selected lines of a diff for the backend.
  *
@@ -158,7 +222,7 @@ export function extractLineGroups(lineIds: LineId[], diff: string): [DeltaLineGr
 	const lineGroups: DeltaLineGroup[] = [];
 	let currentGroup: DeltaLineGroup | undefined = undefined;
 	const lineKeys = new Set(lineIds.map((lineId) => lineIdKey(lineId)));
-	const parsedHunk = parseHunk(diff);
+	const parsedHunk = memoizedParseHunk(diff);
 
 	for (const section of parsedHunk.contentSections) {
 		for (const line of section.lines) {
@@ -293,4 +357,93 @@ export function canBePartiallySelected(patch: Patch): boolean {
 	// See: https://github.com/gitbutlerapp/gitbutler/pull/7893
 
 	return true;
+}
+
+export function hunkContainsHunk(a: DiffHunk, b: DiffHunk): boolean {
+	return (
+		a.oldStart <= b.oldStart &&
+		a.oldStart + a.oldLines - 1 >= b.oldStart + b.oldLines &&
+		a.newStart <= b.newStart &&
+		a.newStart + a.newLines - 1 >= b.newStart + b.newLines
+	);
+}
+
+export function hunkContainsLine(hunk: DiffHunk, line: LineId): boolean {
+	if (line.oldLine === undefined && line.newLine === undefined) {
+		throw new Error('Line has no line numbers');
+	}
+
+	if (line.oldLine !== undefined && line.newLine !== undefined) {
+		return (
+			hunk.oldStart <= line.oldLine &&
+			hunk.oldStart + hunk.oldLines - 1 >= line.oldLine &&
+			hunk.newStart <= line.newLine &&
+			hunk.newStart + hunk.newLines - 1 >= line.newLine
+		);
+	}
+
+	if (line.oldLine !== undefined) {
+		return hunk.oldStart <= line.oldLine && hunk.oldStart + hunk.oldLines - 1 >= line.oldLine;
+	}
+
+	if (line.newLine !== undefined) {
+		return hunk.newStart <= line.newLine && hunk.newStart + hunk.newLines - 1 >= line.newLine;
+	}
+
+	throw new Error('Malformed line ID');
+}
+
+/**
+ * Get the line locks for a hunk.
+ */
+export function getLineLocks(
+	stackId: string | undefined,
+	hunk: DiffHunk,
+	locks: HunkLocks[]
+): [boolean, LineLock[] | undefined] {
+	if (stackId === undefined) {
+		return [false, undefined];
+	}
+
+	const lineLocks: LineLock[] = [];
+	const parsedHunk = memoizedParseHunk(hunk.diff);
+
+	const locksContained = locks.filter((lock) => hunkContainsHunk(hunk, lock.hunk));
+
+	let hunkIsFullyLocked: boolean = true;
+
+	for (const contentSection of parsedHunk.contentSections) {
+		if (contentSection.sectionType === SectionType.Context) continue;
+
+		for (const line of contentSection.lines) {
+			const lineId: LineId = {
+				oldLine: line.beforeLineNumber,
+				newLine: line.afterLineNumber
+			};
+
+			const hunkLocks = locksContained.filter((lock) => hunkContainsLine(lock.hunk, lineId));
+			if (hunkLocks.length === 0) {
+				hunkIsFullyLocked = false;
+				continue;
+			}
+
+			// Filter out locks to the current stack ID
+			const locks = hunkLocks
+				.map((lock) => lock.locks)
+				.flat()
+				.filter((lock) => lock.stackId !== stackId);
+
+			if (locks.length === 0) {
+				hunkIsFullyLocked = false;
+				continue;
+			}
+
+			lineLocks.push({
+				...lineId,
+				locks: hunkLocks.map((lock) => lock.locks).flat()
+			});
+		}
+	}
+
+	return [hunkIsFullyLocked, lineLocks];
 }

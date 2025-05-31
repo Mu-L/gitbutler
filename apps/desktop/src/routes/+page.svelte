@@ -1,10 +1,10 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import FullviewLoading from '$components/FullviewLoading.svelte';
 	import { ProjectsService } from '$lib/project/projectsService';
 	import { getContext } from '@gitbutler/shared/context';
 	import { derived as derivedStore } from 'svelte/store';
-	import { goto } from '$app/navigation';
-	import { page } from '$app/stores';
 
 	const projectsService = getContext(ProjectsService);
 
@@ -26,7 +26,7 @@
 		projects,
 		(projects): Redirect => {
 			if (debug) return { type: 'no-projects' };
-			if (!projects) return { type: 'loading' };
+			if (projects === undefined) return { type: 'loading' };
 			const projectId = projects.find((p) => p.id === persistedId)?.id;
 			if (projectId) {
 				return { type: 'redirect', subject: `/${projectId}` };

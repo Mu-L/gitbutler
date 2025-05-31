@@ -4,7 +4,7 @@
 	import LargeDiffMessage from '$components/LargeDiffMessage.svelte';
 	import { BranchStack } from '$lib/branches/branch';
 	import { SelectedOwnership } from '$lib/branches/ownership';
-	import { draggableElement } from '$lib/dragging/draggable';
+	import { draggableChips } from '$lib/dragging/draggable';
 	import { HunkDropData } from '$lib/dragging/draggables';
 	import { type Hunk } from '$lib/hunks/hunk';
 	import { Project } from '$lib/project/project';
@@ -50,7 +50,7 @@
 	let alwaysShow = $state(false);
 	let viewport = $state<HTMLDivElement>();
 	let contextMenu = $state<ReturnType<typeof HunkContextMenu>>();
-	const draggingDisabled = $derived(isUnapplied);
+	const draggingDisabled = $derived(isUnapplied || readonly);
 
 	function onHunkSelected(hunk: Hunk, isSelected: boolean) {
 		if (!selectedOwnership) return;
@@ -79,9 +79,11 @@
 		class="hunk"
 		class:opacity-60={section.hunk.locked && !isFileLocked}
 		oncontextmenu={(e) => e.preventDefault()}
-		use:draggableElement={{
+		use:draggableChips={{
+			label: section.hunk.diff.split('\n')[0],
 			data: new HunkDropData($stack?.id || '', section.hunk, section.hunk.lockedTo, commitId),
-			disabled: draggingDisabled
+			disabled: draggingDisabled,
+			chipType: 'hunk'
 		}}
 	>
 		{#if linesModified > 2500 && !alwaysShow}
@@ -125,14 +127,14 @@
 <style lang="postcss">
 	.scrollable {
 		display: flex;
-		flex-direction: column;
 		position: relative;
+		flex-direction: column;
 	}
 
 	.hunk {
 		width: 100%;
-		user-select: text;
 		overflow-x: auto;
 		will-change: transform;
+		user-select: text;
 	}
 </style>

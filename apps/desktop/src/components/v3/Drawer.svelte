@@ -13,12 +13,14 @@
 		title?: string;
 		stackId?: string;
 		minHeight?: number;
+		noLeftPadding?: boolean;
 		header?: Snippet;
 		extraActions?: Snippet;
-		kebabMenu?: Snippet;
+		kebabMenu?: Snippet<[element: HTMLElement]>;
 		children: Snippet;
 		filesSplitView?: Snippet;
 		disableScroll?: boolean;
+		testId?: string;
 	};
 
 	const {
@@ -26,12 +28,14 @@
 		projectId,
 		stackId,
 		minHeight = 11,
+		noLeftPadding,
 		header,
 		extraActions,
 		kebabMenu,
 		children,
 		filesSplitView,
-		disableScroll
+		disableScroll,
+		testId
 	}: Props = $props();
 
 	const [uiState] = inject(UiState);
@@ -48,6 +52,7 @@
 	const contentWidth = $derived(uiState.global.drawerSplitViewWidth.get());
 	const scrollable = $derived(!disableScroll);
 
+	let headerDiv = $state<HTMLDivElement>();
 	let drawerDiv = $state<HTMLDivElement>();
 	let viewportEl = $state<HTMLElement>();
 
@@ -62,17 +67,18 @@
 </script>
 
 <div
+	data-testid={testId}
 	class="drawer"
 	bind:this={drawerDiv}
 	style:height
 	style:min-height="{minHeight}rem"
-	use:focusable={{ id: Focusable.CommitEditor, parentId: Focusable.WorkspaceMiddle }}
+	use:focusable={{ id: Focusable.Drawer, parentId: Focusable.ViewportMiddle }}
 >
 	<div class="drawer-wrap">
-		<div class="drawer-header">
+		<div bind:this={headerDiv} class="drawer-header" class:no-left-padding={noLeftPadding}>
 			<div class="drawer-header__title">
 				{#if title}
-					<h3 class="text-15 text-bold">
+					<h3 class="text-15 text-bold truncate">
 						{title}
 					</h3>
 				{/if}
@@ -89,7 +95,7 @@
 				{/if}
 				<div class="drawer-header__actions-group">
 					{#if kebabMenu}
-						{@render kebabMenu()}
+						{@render kebabMenu(headerDiv)}
 					{/if}
 					<Button
 						kind="ghost"
@@ -97,6 +103,7 @@
 						size="tag"
 						onclick={onToggleExpand}
 					/>
+
 					<Button kind="ghost" icon="cross" size="tag" onclick={onClose} />
 				</div>
 			</div>
@@ -136,73 +143,74 @@
 
 				{#if splitView && filesSplitView}
 					<div class="drawer__files-split-view">
-						<ConfigurableScrollableContainer>
-							{@render filesSplitView()}
-						</ConfigurableScrollableContainer>
+						<!-- <ConfigurableScrollableContainer zIndex="var(--z-floating)"> -->
+						{@render filesSplitView()}
+						<!-- </ConfigurableScrollableContainer> -->
 					</div>
 				{/if}
 			</div>
 		{/if}
-
-		{#if !drawerIsFullScreen.current}
-			<Resizer
-				direction="up"
-				viewport={drawerDiv}
-				{minHeight}
-				borderRadius="ml"
-				onHeight={(value) => uiState.global.drawerHeight.set(value)}
-			/>
-		{/if}
 	</div>
+
+	{#if !drawerIsFullScreen.current}
+		<!-- Resizer should be outside if the overflow: hidden container otherwise it wouldn't overlay on top of the border -->
+		<Resizer
+			direction="up"
+			viewport={drawerDiv}
+			{minHeight}
+			borderRadius="ml"
+			onHeight={(value) => uiState.global.drawerHeight.set(value)}
+		/>
+	{/if}
 </div>
 
 <style>
 	.drawer {
-		position: relative;
-		overflow: hidden;
-		display: flex;
-		flex-direction: column;
-		flex-shrink: 0;
-		flex-grow: 1;
-		width: 100%;
 		box-sizing: border-box;
-		border-radius: var(--radius-ml);
-		border: 1px solid var(--clr-border-2);
-		background: var(--clr-bg-1);
-		container-type: inline-size;
 		container-name: drawer;
+
+		container-type: inline-size;
+		display: flex;
+		position: relative;
+		flex-grow: 1;
+		flex-shrink: 0;
+		flex-direction: column;
+		width: 100%;
 	}
 
 	.drawer-wrap {
-		flex: 1;
 		display: flex;
+		flex: 1;
 		flex-direction: column;
 		overflow: hidden;
+		border: 1px solid var(--clr-border-2);
+		border-radius: var(--radius-ml);
+		background: var(--clr-bg-1);
 	}
 
 	.drawer-header {
 		display: flex;
 		align-items: center;
-		gap: 6px;
 		justify-content: space-between;
 		height: 42px;
 		padding: 0 8px 0 14px;
-		background-color: var(--clr-bg-2);
+		gap: 6px;
 		border-bottom: 1px solid var(--clr-border-2);
+		background-color: var(--clr-bg-2);
 	}
 
 	.drawer-header__title {
-		height: 100%;
-		flex-grow: 1;
 		display: flex;
-		gap: 8px;
+		flex-grow: 1;
 		align-items: center;
+		height: 100%;
 		overflow: hidden;
+		gap: 8px;
 	}
 
 	.drawer-header__actions {
-		flex-shrink: 0;
 		display: flex;
+		flex-shrink: 0;
 		align-items: center;
 		gap: 12px;
 	}
@@ -214,13 +222,14 @@
 	}
 
 	.drawer__content-resizer {
+		/* need this to hide the resizer on smaller screens */
 		display: contents;
 	}
 
 	.drawer__content-wrap {
-		flex: 1;
-		position: relative;
 		display: flex;
+		position: relative;
+		flex: 1;
 		flex-direction: column;
 		overflow: hidden;
 
@@ -231,7 +240,6 @@
 		&:not(.files-split-view) {
 			& .drawer__content {
 				flex: 1;
-				min-height: 100%;
 			}
 
 			& .drawer__content-scroll {
@@ -241,7 +249,6 @@
 
 		@container drawer (min-width: 530px) {
 			&.files-split-view .drawer__content-scroll {
-				min-width: 300px;
 				max-width: 500px;
 			}
 		}
@@ -266,27 +273,38 @@
 		}
 	}
 
+	.drawer__content {
+		container-name: drawer-content;
+		container-type: inline-size;
+		display: flex;
+		position: relative;
+		flex-direction: column;
+		min-height: 100%;
+		padding: 14px;
+		user-select: text;
+	}
+
 	.drawer__content-scroll {
 		display: flex;
-		flex-direction: column;
 		position: relative;
-		height: 100%;
+		flex-direction: column;
 		width: var(--custom-width);
+		height: 100%;
 		min-height: 0;
 	}
 
 	.drawer__files-split-view {
-		flex: 1;
 		display: flex;
+		flex: 1;
 		flex-direction: column;
+		min-width: 200px;
 		overflow: hidden;
-		min-width: 230px;
 	}
 
-	.drawer__content {
-		position: relative;
-		display: flex;
-		flex-direction: column;
-		padding: 14px;
+	/* MODIFIERS */
+	.drawer-header {
+		&.no-left-padding {
+			padding-left: 0;
+		}
 	}
 </style>

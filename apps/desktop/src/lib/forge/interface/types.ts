@@ -28,9 +28,14 @@ export interface PullRequest {
 	reviewers: { srcUrl: string; name: string }[];
 }
 
+export interface PullRequestPermissions {
+	canMerge?: boolean;
+}
+
 export interface DetailedPullRequest {
 	id: number;
 	title: string;
+	author: Author | null;
 	body: string | undefined;
 	number: number;
 	sourceBranch: string;
@@ -51,6 +56,9 @@ export interface DetailedPullRequest {
 	baseBranch: string;
 	reviewers: { srcUrl: string; name: string }[];
 	commentsCount: number;
+	permissions?: PullRequestPermissions;
+	repositorySshUrl?: string;
+	repositoryHttpsUrl?: string;
 }
 
 export type ChecksStatus = {

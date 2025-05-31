@@ -6,6 +6,7 @@ use but_core::ref_metadata::{
 use gitbutler_stack::{StackId, VirtualBranchesState};
 use gix::date::SecondsSinceUnixEpoch;
 use gix::refs::{FullName, FullNameRef};
+use itertools::Itertools;
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -13,6 +14,7 @@ use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+#[derive(Debug)]
 struct Snapshot {
     /// The time at which the `content` was changed, before it was written to disk.
     changed_at: Option<Instant>,
@@ -62,8 +64,9 @@ impl Snapshot {
 /// that is possibly written multiple times. It will write itself on drop only, and log write failures.
 ///
 /// The idea is that it's forgiving and easy to use, while helping to eventually migrate to a database.
+#[derive(Debug)]
 pub struct VirtualBranchesTomlMetadata {
-    // What is currently in memory for query or edits.
+    // What is currently in memory for query or editing.
     snapshot: Snapshot,
 }
 
@@ -83,6 +86,18 @@ impl VirtualBranchesTomlMetadata {
     /// We will write changes to it on drop.
     pub fn path(&self) -> &Path {
         &self.snapshot.path
+    }
+}
+
+/// Mostly used in testing, and it's fine as it's intermediate, and we are very practical here.
+impl VirtualBranchesTomlMetadata {
+    /// Return a mutable snapshot of the underlying data. Useful for testing mainly.
+    pub fn data_mut(&mut self) -> &mut VirtualBranchesState {
+        &mut self.snapshot.content
+    }
+    /// Return a snapshot of the underlying data. Useful for working around (intended) limitations of the RefMetadata trait.
+    pub fn data(&self) -> &VirtualBranchesState {
+        &self.snapshot.content
     }
 }
 
@@ -132,7 +147,7 @@ impl RefMetadata for VirtualBranchesTomlMetadata {
     }
 
     fn workspace(&self, ref_name: &FullNameRef) -> anyhow::Result<Self::Handle<Workspace>> {
-        if is_workspace_ref(ref_name) {
+        if is_workspace_ref_name(ref_name) {
             let value = Self::workspace_from_data(&self.snapshot.content);
             Ok(VBTomlMetadataHandle {
                 is_default: value == default_workspace(),
@@ -187,7 +202,7 @@ impl RefMetadata for VirtualBranchesTomlMetadata {
 
     fn set_workspace(&mut self, value: &Self::Handle<Workspace>) -> anyhow::Result<()> {
         let ref_name = value.ref_name.as_ref();
-        if !is_workspace_ref(ref_name) {
+        if !is_workspace_ref_name(ref_name) {
             bail!("This backend doesn't support arbitrary workspaces");
         }
 
@@ -343,7 +358,7 @@ impl RefMetadata for VirtualBranchesTomlMetadata {
     }
 
     fn remove(&mut self, ref_name: &FullNameRef) -> anyhow::Result<bool> {
-        if is_workspace_ref(ref_name) {
+        if is_workspace_ref_name(ref_name) {
             // There is only one workspace, and it's the same as deleting everything.
             // The real implementation of this would just delete data associated with a ref, no special case needed there.
             if let Err(err) = std::fs::remove_file(&self.snapshot.path) {
@@ -413,6 +428,7 @@ impl VirtualBranchesTomlMetadata {
             stacks: stacks
                 .iter()
                 .filter(|s| s.in_workspace)
+                .sorted_by_key(|s| s.order)
                 .map(|s| WorkspaceStack {
                     branches: s
                         .heads
@@ -440,6 +456,13 @@ pub struct VBTomlMetadataHandle<T> {
     // other storage backends like database may have similar handles to avoid searches by name.
     stack_id: RefCell<Option<StackId>>,
     value: T,
+}
+
+impl<T> VBTomlMetadataHandle<T> {
+    /// Return the stack_id of the underlying stack if there is one.
+    pub fn stack_id(&self) -> Option<StackId> {
+        *self.stack_id.borrow()
+    }
 }
 
 impl<T> AsRef<FullNameRef> for VBTomlMetadataHandle<T> {
@@ -473,7 +496,11 @@ fn standard_time() -> gix::date::Time {
     gix::date::Time::new(1675176957, 0)
 }
 
-fn is_workspace_ref(ref_name: &FullNameRef) -> bool {
+/// Return `true` if `ref_name` looks like the standard GitButler workspace.
+///
+/// Note that in the future, ideally we won't rely on the name at all, but instead
+/// check for the presence of workspace ref-metadata.
+pub fn is_workspace_ref_name(ref_name: &FullNameRef) -> bool {
     ref_name.as_bstr() == INTEGRATION_BRANCH || ref_name.as_bstr() == INTEGRATION_BRANCH_LEGACY
 }
 

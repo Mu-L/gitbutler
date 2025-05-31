@@ -1,27 +1,31 @@
 <script lang="ts">
 	import ReduxResult from '$components/ReduxResult.svelte';
 	import ChangedFiles from '$components/v3/ChangedFiles.svelte';
-	import CommitContextMenu from '$components/v3/CommitContextMenu.svelte';
+	import CommitContextMenu, {
+		type CommitMenuContext
+	} from '$components/v3/CommitContextMenu.svelte';
 	import CommitDetails from '$components/v3/CommitDetails.svelte';
 	import CommitHeader from '$components/v3/CommitHeader.svelte';
 	import CommitLine from '$components/v3/CommitLine.svelte';
 	import CommitMessageEditor from '$components/v3/CommitMessageEditor.svelte';
 	import ConflictResolutionConfirmModal from '$components/v3/ConflictResolutionConfirmModal.svelte';
 	import Drawer from '$components/v3/Drawer.svelte';
-	import { getCommitType, isLocalAndRemoteCommit } from '$components/v3/lib';
+	import KebabButton from '$components/v3/KebabButton.svelte';
+	import { isLocalAndRemoteCommit } from '$components/v3/lib';
 	import { writeClipboard } from '$lib/backend/clipboard';
-	import { type Commit } from '$lib/branches/v3';
+	import { isCommit } from '$lib/branches/v3';
 	import { CommitStatus, type CommitKey } from '$lib/commits/commit';
 	import { DefaultForgeFactory } from '$lib/forge/forgeFactory.svelte';
 	import { ModeService } from '$lib/mode/modeService';
 	import { showToast } from '$lib/notifications/toasts';
 	import { StackService } from '$lib/stacks/stackService.svelte';
 	import { UiState } from '$lib/state/uiState.svelte';
+	import { TestId } from '$lib/testing/testIds';
 	import { splitMessage } from '$lib/utils/commitMessage';
 	import { inject } from '@gitbutler/shared/context';
 	import { getContext, maybeGetContext } from '@gitbutler/shared/context';
+	import AsyncButton from '@gitbutler/ui/AsyncButton.svelte';
 	import Button from '@gitbutler/ui/Button.svelte';
-	import ContextMenu from '@gitbutler/ui/ContextMenu.svelte';
 	import Icon from '@gitbutler/ui/Icon.svelte';
 	import Tooltip from '@gitbutler/ui/Tooltip.svelte';
 
@@ -29,9 +33,11 @@
 		projectId: string;
 		stackId: string;
 		commitKey: CommitKey;
+		active?: boolean;
+		onerror: (err: unknown) => void;
 	};
 
-	const { projectId, stackId, commitKey }: Props = $props();
+	const { projectId, stackId, commitKey, active, onerror }: Props = $props();
 
 	const [stackService, uiState] = inject(StackService, UiState);
 
@@ -41,6 +47,7 @@
 	const forge = getContext(DefaultForgeFactory);
 	const modeService = maybeGetContext(ModeService);
 	const stackState = $derived(uiState.stack(stackId));
+	const projectState = $derived(uiState.project(projectId));
 	const selected = $derived(stackState.selection.get());
 	const branchName = $derived(selected.current?.branchName);
 
@@ -49,8 +56,6 @@
 			? stackService.upstreamCommitById(projectId, commitKey)
 			: stackService.commitById(projectId, commitKey)
 	);
-	const isUnapplied = false; // TODO
-	const branchRefName = undefined; // TODO
 
 	const changesResult = $derived(stackService.commitChanges(projectId, commitKey.commitId));
 
@@ -58,19 +63,38 @@
 
 	type Mode = 'view' | 'edit';
 
-	let mode = $state<Mode>('view');
-	let commitMessageInput = $state<ReturnType<typeof CommitMessageEditor>>();
+	let editor = $state<CommitMessageEditor>();
 
 	function setMode(newMode: Mode) {
-		mode = newMode;
+		switch (newMode) {
+			case 'edit':
+				projectState.editingCommitMessage.set(true);
+				break;
+			case 'view':
+				projectState.editingCommitMessage.set(false);
+				break;
+		}
 	}
 
-	async function editCommitMessage() {
+	const parsedMessage = $derived(
+		commitResult.current.data ? splitMessage(commitResult.current.data.message) : undefined
+	);
+
+	function combineParts(title?: string, description?: string): string {
+		if (!title) {
+			return '';
+		}
+		if (description) {
+			return `${title}\n\n${description}`;
+		}
+		return title;
+	}
+
+	async function saveCommitMessage(title: string, description: string) {
+		const commitMessage = combineParts(title, description);
 		if (!branchName) {
 			throw new Error('No branch selected!');
 		}
-		if (!commitMessageInput) return;
-		const commitMessage = commitMessageInput.getMessage();
 		if (!commitMessage) {
 			showToast({ message: 'Commit message is required', style: 'error' });
 			return;
@@ -87,55 +111,33 @@
 		setMode('view');
 	}
 
-	function getCommitLabel(commit: Partial<Commit>) {
-		const commitType = commit ? getCommitType(commit as Commit) : 'unknown';
-
-		switch (commitType) {
-			case 'local':
-				return 'Unpushed';
-			case 'upstream':
-				return 'Upstream';
-			case 'local-and-remote':
-				return 'Pushed';
-			case 'diverged':
-				return 'Diverged';
-		}
-	}
-
-	// context menu
-	let contextMenu = $state<ReturnType<typeof ContextMenu>>();
-	let kebabContextMenuTrigger = $state<HTMLButtonElement>();
-	let isContextMenuOpen = $state(false);
+	let commitMenuContext = $state<CommitMenuContext>();
 
 	async function handleUncommit() {
-		if (!branchName) {
-			console.error('Unable to undo commit');
-			return;
-		}
+		if (!branchName) return;
 		await stackService.uncommit({ projectId, stackId, branchName, commitId: commitKey.commitId });
 	}
 
-	function openCommitMessageModal() {
-		// TODO: Implement openCommitMessageModal
-	}
-
 	function canEdit() {
-		if (isUnapplied) return false;
-		if (!modeService) return false;
-
-		return true;
+		return modeService !== undefined;
 	}
 
 	async function editPatch() {
-		if (!canEdit() || !branchRefName) return;
+		if (!canEdit()) return;
 		await modeService!.enterEditMode(commitKey.commitId, stackId);
+	}
+
+	function cancelEdit() {
+		setMode('view');
 	}
 </script>
 
-<ReduxResult {stackId} {projectId} result={commitResult.current}>
+<ReduxResult {stackId} {projectId} result={commitResult.current} {onerror}>
 	{#snippet children(commit, env)}
-		{#if mode === 'edit'}
+		{@const isConflicted = isCommit(commit) && commit.hasConflicts}
+		{#if projectState.editingCommitMessage.current}
 			<Drawer
+				testId={TestId.EditCommitMessageDrawer}
 				projectId={env.projectId}
 				stackId={env.stackId}
 				title="Edit commit message"
@@ -143,28 +145,33 @@
 				minHeight={20}
 			>
 				<CommitMessageEditor
-					bind:this={commitMessageInput}
+					bind:this={editor}
 					projectId={env.projectId}
 					stackId={env.stackId}
-					action={editCommitMessage}
+					action={({ title, description }) => saveCommitMessage(title, description)}
 					actionLabel="Save"
-					onCancel={() => setMode('view')}
-					initialTitle={splitMessage(commit.message).title}
-					initialMessage={splitMessage(commit.message).description}
+					onCancel={cancelEdit}
 					loading={messageUpdateResult.current.isLoading}
 					existingCommitId={commit.id}
+					title={parsedMessage?.title || ''}
+					description={parsedMessage?.description || ''}
 				/>
 			</Drawer>
 		{:else}
-			<Drawer projectId={env.projectId} stackId={env.stackId}>
+			<Drawer
+				testId={TestId.CommitDrawer}
+				projectId={env.projectId}
+				stackId={env.stackId}
+				noLeftPadding
+			>
 				{#snippet header()}
 					<div class="commit-view__header text-13">
 						{#if isLocalAndRemoteCommit(commit)}
+							{@const commitState = commit.state}
 							<CommitLine
-								commitStatus={commit.state.type}
-								diverged={commit.state.type === 'LocalAndRemote' &&
-									commit.id !== commit.state.subject}
-								tooltip={commit.state.type}
+								commitStatus={commitState.type}
+								diverged={commitState.type === 'LocalAndRemote' &&
+									commit.id !== commitState.subject}
 								width={24}
 							/>
 						{:else}
@@ -177,8 +184,6 @@
 						{/if}
 
 						<div class="commit-view__header-title text-13">
-							<span class="text-semibold">{getCommitLabel(commit)} commit:</span>
-
 							<Tooltip text="Copy commit SHA">
 								<button
 									type="button"
@@ -199,17 +204,27 @@
 					</div>
 				{/snippet}
 
-				{#snippet kebabMenu()}
-					<Button
-						size="tag"
-						icon="kebab"
-						kind="ghost"
-						activated={isContextMenuOpen}
-						bind:el={kebabContextMenuTrigger}
-						onclick={() => {
-							contextMenu?.toggle();
-						}}
-					/>
+				{#snippet kebabMenu(header)}
+					{@const data = isLocalAndRemoteCommit(commit)
+						? {
+								stackId,
+								commitId: commit.id,
+								commitMessage: commit.message,
+								commitStatus: commit.state.type,
+								commitUrl: forge.current.commitUrl(commit.id),
+								onUncommitClick: () => handleUncommit(),
+								onEditMessageClick: () => setMode('edit'),
+								onPatchEditClick: () => editPatch()
+							}
+						: undefined}
+					{#if data}
+						<KebabButton
+							contextElement={header}
+							onclick={(element) => (commitMenuContext = { data, position: { element } })}
+							oncontext={(coords) => (commitMenuContext = { data, position: { coords } })}
+							activated={!!commitMenuContext?.position.element}
+						/>
+					{/if}
 				{/snippet}
 
 				<div class="commit-view">
@@ -217,24 +232,59 @@
 						commitMessage={commit.message}
 						className="text-14 text-semibold text-body"
 					/>
-					<CommitDetails
-						projectId={env.projectId}
-						{branchName}
-						{commit}
-						stackId={env.stackId}
-						onEditCommitMessage={() => setMode('edit')}
-					/>
+					<CommitDetails {commit}>
+						<Button
+							testId={TestId.CommitDrawerActionEditMessage}
+							size="tag"
+							kind="outline"
+							icon="edit-small"
+							onclick={() => {
+								setMode('edit');
+							}}
+						>
+							Edit message
+						</Button>
+
+						<AsyncButton
+							testId={TestId.CommitDrawerActionUncommit}
+							size="tag"
+							kind="outline"
+							icon="undo-small"
+							action={async () => await handleUncommit()}
+						>
+							Uncommit
+						</AsyncButton>
+
+						{#if isConflicted}
+							<AsyncButton
+								size="tag"
+								kind="solid"
+								style="error"
+								action={editPatch}
+								icon="warning-small"
+							>
+								Resolve conflicts
+							</AsyncButton>
+						{:else}
+							<AsyncButton size="tag" kind="outline" action={editPatch}>Edit commit</AsyncButton>
+						{/if}
+					</CommitDetails>
 				</div>
 
 				{#snippet filesSplitView()}
 					<ReduxResult {projectId} {stackId} result={changesResult.current}>
-						{#snippet children(changes)}
+						{#snippet children(changes, { projectId, stackId })}
 							<ChangedFiles
 								title="Changed files"
-								projectId={env.projectId}
-								stackId={env.stackId}
+								{projectId}
+								{stackId}
+								draggableFiles={true}
 								selectionId={{ type: 'commit', commitId: commit.id }}
-								{changes}
+								changes={changes.changes.filter(
+									(change) => !(change.path in (changes.conflictEntries?.entries ?? {}))
+								)}
+								conflictEntries={changes.conflictEntries}
+								{active}
 							/>
 						{/snippet}
 					</ReduxResult>
@@ -246,43 +296,28 @@
 			bind:this={conflictResolutionConfirmationModal}
 			onSubmit={editPatch}
 		/>
-
-		<ContextMenu leftClickTrigger={kebabContextMenuTrigger}>
-			{#snippet menu({ close })}
-				<CommitContextMenu
-					{close}
-					{projectId}
-					{stackId}
-					commitId={commit.id}
-					commitMessage={commit.message}
-					commitStatus={isLocalAndRemoteCommit(commit) ? commit.state.type : 'Remote'}
-					commitUrl={forge.current.commitUrl(commit.id)}
-					onUncommitClick={handleUncommit}
-					onEditMessageClick={openCommitMessageModal}
-					onToggle={(isOpen) => {
-						isContextMenuOpen = isOpen;
-					}}
-				/>
-			{/snippet}
-		</ContextMenu>
 	{/snippet}
 </ReduxResult>
 
+{#if commitMenuContext}
+	<CommitContextMenu {projectId} bind:context={commitMenuContext} />
+{/if}
+
 <style>
 	.commit-view {
-		position: relative;
-		height: 100%;
-		flex: 1;
 		display: flex;
+		position: relative;
+		flex: 1;
 		flex-direction: column;
+		height: 100%;
 		gap: 14px;
 	}
 
 	.commit-view__header {
 		display: flex;
-		gap: 8px;
 		height: 100%;
-		margin-left: -4px;
+		padding-left: 8px;
+		gap: 8px;
 	}
 
 	.commit-view__header-title {
@@ -293,10 +328,10 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 2px;
-		text-decoration: dotted underline;
-		transition: color var(--transition-fast);
-		cursor: pointer;
 		color: var(--clr-text-2);
+		text-decoration: dotted underline;
+		cursor: pointer;
+		transition: color var(--transition-fast);
 
 		&:hover {
 			color: var(--clr-text-1);

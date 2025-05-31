@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import IconLink from '$components/IconLink.svelte';
 	import WelcomeAction from '$components/WelcomeAction.svelte';
 	import WelcomeSigninAction from '$components/WelcomeSigninAction.svelte';
@@ -6,7 +7,6 @@
 	import newProjectSvg from '$lib/assets/welcome/new-local-project.svg?raw';
 	import { ProjectsService } from '$lib/project/projectsService';
 	import { getContext } from '@gitbutler/shared/context';
-	import { goto } from '$app/navigation';
 
 	const projectsService = getContext(ProjectsService);
 
@@ -105,8 +105,8 @@
 	.welcome__actions {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
 		margin-top: 32px;
+		gap: 8px;
 	}
 
 	.welcome__actions--repo {
@@ -116,11 +116,11 @@
 
 	.links {
 		display: flex;
-		gap: 56px;
-		padding: 28px;
-		background: var(--clr-bg-1-muted);
-		border-radius: var(--radius-m);
 		margin-top: 20px;
+		padding: 28px;
+		gap: 56px;
+		border-radius: var(--radius-m);
+		background: var(--clr-bg-1-muted);
 	}
 
 	.links__section {
@@ -133,8 +133,8 @@
 		display: flex;
 		flex-direction: column;
 		align-items: flex-start;
-		gap: 6px;
 		margin-left: -6px;
+		gap: 6px;
 	}
 
 	.community-links {

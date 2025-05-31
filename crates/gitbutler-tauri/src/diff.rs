@@ -1,12 +1,18 @@
 use crate::error::Error;
 use crate::from_json::HexHash;
 use anyhow::Context;
-use but_core::ui::{TreeChange, TreeChanges, WorktreeChanges};
+use but_core::{
+    commit::ConflictEntries,
+    ui::{TreeChange, TreeChanges},
+    Commit,
+};
+use but_hunk_assignment::{AssignmentRejection, HunkAssignmentRequest, WorktreeChanges};
 use but_workspace::StackId;
 use gitbutler_command_context::CommandContext;
 use gitbutler_oxidize::{ObjectIdExt, OidExt};
 use gitbutler_project::ProjectId;
 use gitbutler_stack::VirtualBranchesHandle;
+use serde::Serialize;
 use tracing::instrument;
 
 /// Provide a unified diff for `change`, but fail if `change` is a [type-change](but_core::ModeFlags::TypeChange)
@@ -29,14 +35,32 @@ pub fn tree_change_diffs(
 
 #[tauri::command(async)]
 #[instrument(skip(projects), err(Debug))]
-pub fn changes_in_commit(
+pub fn commit_details(
     projects: tauri::State<'_, gitbutler_project::Controller>,
     project_id: ProjectId,
     commit_id: HexHash,
-) -> anyhow::Result<TreeChanges, Error> {
+) -> anyhow::Result<CommitDetails, Error> {
     let project = projects.get(project_id)?;
-    but_core::diff::ui::commit_changes_by_worktree_dir(project.path, commit_id.into())
-        .map_err(Into::into)
+    let repo = &gix::open(&project.path).context("Failed to open repo")?;
+    let commit = repo
+        .find_commit(commit_id)
+        .context("Failed for find commit")?;
+    let changes = but_core::diff::ui::commit_changes_by_worktree_dir(repo, commit_id.into())?;
+    let conflict_entries = Commit::from_id(commit.id())?.conflict_entries()?;
+    Ok(CommitDetails {
+        commit: commit.try_into()?,
+        changes,
+        conflict_entries,
+    })
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitDetails {
+    pub commit: but_workspace::ui::Commit,
+    #[serde(flatten)]
+    pub changes: but_core::ui::TreeChanges,
+    pub conflict_entries: Option<ConflictEntries>,
 }
 
 /// Gets the changes for a given branch.
@@ -51,9 +75,11 @@ pub fn changes_in_branch(
     project_id: ProjectId,
     stack_id: Option<StackId>,
     branch_name: String,
+    remote: Option<String>,
 ) -> anyhow::Result<TreeChanges, Error> {
     let project = projects.get(project_id)?;
     let ctx = CommandContext::open(&project, settings.get()?.clone())?;
+    let branch_name = remote.map_or(branch_name.clone(), |r| format!("{r}/{branch_name}"));
     changes_in_branch_inner(ctx, branch_name, stack_id).map_err(Into::into)
 }
 
@@ -130,13 +156,48 @@ fn commit_and_base_from_stack(
 ///
 /// All ignored status changes are also provided so they can be displayed separately.
 #[tauri::command(async)]
-#[instrument(skip(projects), err(Debug))]
+#[instrument(skip(projects, settings), err(Debug))]
 pub fn changes_in_worktree(
     projects: tauri::State<'_, gitbutler_project::Controller>,
+    settings: tauri::State<'_, but_settings::AppSettingsWithDiskSync>,
     project_id: ProjectId,
 ) -> anyhow::Result<WorktreeChanges, Error> {
     let project = projects.get(project_id)?;
-    Ok(but_core::diff::ui::worktree_changes_by_worktree_dir(
-        project.path,
-    )?)
+    let ctx = &mut CommandContext::open(&project, settings.get()?.clone())?;
+    let changes = but_core::diff::ui::worktree_changes_by_worktree_dir(project.path)?;
+    let assignments = if changes.changes.is_empty() {
+        Ok(Vec::new())
+    } else {
+        but_hunk_assignment::assignments(
+            ctx,
+            false,
+            Some(
+                changes
+                    .changes
+                    .clone()
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
+            ),
+        )
+        .map_err(|err| serde_error::Error::new(&*err))
+    };
+    Ok(WorktreeChanges {
+        worktree_changes: changes,
+        assignments,
+    })
+}
+
+#[tauri::command(async)]
+#[instrument(skip(projects, settings), err(Debug))]
+pub fn assign_hunk(
+    projects: tauri::State<'_, gitbutler_project::Controller>,
+    settings: tauri::State<'_, but_settings::AppSettingsWithDiskSync>,
+    project_id: ProjectId,
+    assignments: Vec<HunkAssignmentRequest>,
+) -> anyhow::Result<Vec<AssignmentRejection>, Error> {
+    let project = projects.get(project_id)?;
+    let ctx = &mut CommandContext::open(&project, settings.get()?.clone())?;
+    let rejections = but_hunk_assignment::assign(ctx, assignments)?;
+    Ok(rejections)
 }

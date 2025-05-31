@@ -30,10 +30,10 @@
 <div class="empty-state-container">
 	<div
 		class="empty-state"
-		style:gap={pxToRem(gap)}
-		style:max-width={pxToRem(width)}
-		style:margin-bottom={pxToRem(bottomMargin)}
-		style:padding={`${pxToRem(topBottomPadding)} ${pxToRem(leftRightPadding)}`}
+		style:gap="{pxToRem(gap)}rem"
+		style:max-width="{pxToRem(width)}rem"
+		style:margin-bottom="{pxToRem(bottomMargin)}rem"
+		style:padding={`${pxToRem(topBottomPadding)}rem ${pxToRem(leftRightPadding)}rem`}
 		style:background
 	>
 		{#if image}
@@ -68,16 +68,16 @@
 	}
 
 	.empty-state {
-		user-select: none;
 		display: flex;
 		flex-grow: 1;
 		flex-direction: column;
 		align-items: center;
-		color: var(--clr-scale-ntrl-60);
 		justify-content: center;
 		width: 100%;
 		border-radius: var(--radius-m);
+		color: var(--clr-scale-ntrl-60);
 		cursor: default; /* was defaulting to text cursor */
+		user-select: none;
 	}
 
 	.empty-state__content {

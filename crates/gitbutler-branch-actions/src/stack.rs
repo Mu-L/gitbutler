@@ -37,8 +37,8 @@ pub fn create_branch(
     stack_id: StackId,
     req: CreateSeriesRequest,
 ) -> Result<()> {
-    ctx.verify()?;
     let mut guard = ctx.project().exclusive_worktree_access();
+    ctx.verify(guard.write_permission())?;
     let _ = ctx.snapshot_create_dependent_branch(&req.name, guard.write_permission());
     assure_open_workspace_mode(ctx).context("Requires an open workspace mode")?;
     let mut stack = ctx.project().virtual_branches().get_stack(stack_id)?;
@@ -60,14 +60,14 @@ pub fn create_branch(
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CreateSeriesRequest {
     /// Name of the new series
-    name: String,
+    pub name: String,
     /// Description of the new series - can be markdown or anything really
-    description: Option<String>,
+    pub description: Option<String>,
     /// The target patch (head) to create these series for. If let None, the new series will be at the top of the stack
-    target_patch: Option<gitbutler_stack::CommitOrChangeId>,
+    pub target_patch: Option<gitbutler_stack::CommitOrChangeId>,
     /// The name of the series that preceded the newly created series.
     /// This is used to disambiguate the order when they point to the same patch
-    preceding_head: Option<String>,
+    pub preceding_head: Option<String>,
 }
 
 /// Removes series grouping from the Stack. This will not touch the patches / commits contained in the series.
@@ -75,8 +75,8 @@ pub struct CreateSeriesRequest {
 /// If there were commits/changes that were *only* referenced by the removed branch,
 /// those commits are moved to the branch underneath it (or more accurately, the preceding it)
 pub fn remove_branch(ctx: &CommandContext, stack_id: StackId, branch_name: String) -> Result<()> {
-    ctx.verify()?;
     let mut guard = ctx.project().exclusive_worktree_access();
+    ctx.verify(guard.write_permission())?;
     let _ = ctx.snapshot_remove_dependent_branch(&branch_name, guard.write_permission());
     assure_open_workspace_mode(ctx).context("Requires an open workspace mode")?;
     let mut stack = ctx.project().virtual_branches().get_stack(stack_id)?;
@@ -91,8 +91,8 @@ pub fn update_branch_name(
     branch_name: String,
     new_name: String,
 ) -> Result<()> {
-    ctx.verify()?;
     let mut guard = ctx.project().exclusive_worktree_access();
+    ctx.verify(guard.write_permission())?;
     let _ = ctx.snapshot_update_dependent_branch_name(&branch_name, guard.write_permission());
     assure_open_workspace_mode(ctx).context("Requires an open workspace mode")?;
     let mut stack = ctx.project().virtual_branches().get_stack(stack_id)?;
@@ -115,8 +115,8 @@ pub fn update_branch_description(
     branch_name: String,
     description: Option<String>,
 ) -> Result<()> {
-    ctx.verify()?;
     let mut guard = ctx.project().exclusive_worktree_access();
+    ctx.verify(guard.write_permission())?;
     let _ = ctx.create_snapshot(
         SnapshotDetails::new(OperationKind::UpdateDependentBranchDescription),
         guard.write_permission(),
@@ -148,8 +148,8 @@ pub fn update_branch_pr_number(
     branch_name: String,
     pr_number: Option<usize>,
 ) -> Result<()> {
-    ctx.verify()?;
     let mut guard = ctx.project().exclusive_worktree_access();
+    ctx.verify(guard.write_permission())?;
     let _ = ctx.create_snapshot(
         SnapshotDetails::new(OperationKind::UpdateDependentBranchPrNumber),
         guard.write_permission(),
@@ -162,16 +162,17 @@ pub fn update_branch_pr_number(
 /// Pushes all series in the stack to the remote.
 /// This operation will error out if the target has no push remote configured.
 pub fn push_stack(ctx: &CommandContext, stack_id: StackId, with_force: bool) -> Result<()> {
-    ctx.verify()?;
+    ctx.verify(ctx.project().exclusive_worktree_access().write_permission())?;
     assure_open_workspace_mode(ctx).context("Requires an open workspace mode")?;
     let state = ctx.project().virtual_branches();
     let stack = state.get_stack(stack_id)?;
 
     let repo = ctx.repo();
     let default_target = state.get_default_target()?;
-    let merge_base = repo.find_commit(
-        repo.merge_base(stack.head(&repo.to_gix()?)?.to_git2(), default_target.sha)?,
-    )?;
+    let merge_base = repo.find_commit(repo.merge_base(
+        stack.head_oid(&repo.to_gix()?)?.to_git2(),
+        default_target.sha,
+    )?)?;
     // let merge_base: CommitOrChangeId = merge_base.into();
 
     // First fetch, because we dont want to push integrated series

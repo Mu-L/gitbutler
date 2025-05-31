@@ -1,13 +1,14 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import BranchPreview from '$components/BranchPreview.svelte';
 	import FullviewLoading from '$components/FullviewLoading.svelte';
 	import PageLoadFailed from '$components/PageLoadFailed.svelte';
 	import { GitBranchService } from '$lib/branches/gitBranch';
 	import { DefaultForgeFactory } from '$lib/forge/forgeFactory.svelte';
+	import { getStackName } from '$lib/stacks/stack';
 	import { StackService } from '$lib/stacks/stackService.svelte';
 	import { getContext } from '@gitbutler/shared/context';
 	import type { BranchData } from '$lib/branches/branch';
-	import { page } from '$app/state';
 
 	const projectId = $derived(page.params.projectId!);
 
@@ -24,7 +25,8 @@
 	let remoteBranches = $state<BranchData[]>([]);
 	let error = $state<unknown>();
 
-	const name = $derived(stackResult.current?.data?.branchNames[0]);
+	const stack = $derived(stackResult.current.data);
+	const name = $derived(stack ? getStackName(stack) : undefined);
 
 	const prResult = $derived(name ? forgeListingService?.getByBranch(projectId, name) : undefined);
 	const pr = $derived(prResult?.current.data);
@@ -55,6 +57,6 @@
 	<BranchPreview {projectId} {localBranch} {pr} />
 {:else}
 	{#each remoteBranches as remoteBranch}
-		<BranchPreview {projectId} {remoteBranch} {pr} />
+		<BranchPreview {projectId} {remoteBranch} {localBranch} {pr} />
 	{/each}
 {/if}

@@ -1,10 +1,13 @@
 <!-- This is a V3 replacement for `FileContextMenu.svelte` -->
 <script lang="ts">
 	import { writeClipboard } from '$lib/backend/clipboard';
+	import { changesToDiffSpec } from '$lib/commits/utils';
 	import { isTreeChange, type TreeChange } from '$lib/hunks/change';
 	import { Project } from '$lib/project/project';
+	import { IdSelection } from '$lib/selection/idSelection.svelte';
 	import { SETTINGS, type Settings } from '$lib/settings/userSettings';
 	import { StackService } from '$lib/stacks/stackService.svelte';
+	import { UiState } from '$lib/state/uiState.svelte';
 	import { computeChangeStatus } from '$lib/utils/fileStatus';
 	import { getEditorUri, openExternalUrl } from '$lib/utils/url';
 	import { getContextStoreBySymbol, inject } from '@gitbutler/shared/context';
@@ -19,12 +22,14 @@
 	import * as toasts from '@gitbutler/ui/toasts';
 	import { join } from '@tauri-apps/api/path';
 	import type { DiffSpec } from '$lib/hunks/hunk';
+	import type { SelectionId } from '$lib/selection/key';
 	import type { Writable } from 'svelte/store';
 
 	type Props = {
-		isUncommitted: boolean;
+		projectId: string;
+		stackId: string | undefined;
+		selectionId: SelectionId;
 		trigger?: HTMLElement;
-		isBinary?: boolean;
 		unSelectChanges: (changes: TreeChange[]) => void;
 	};
 
@@ -42,14 +47,19 @@
 		);
 	}
 
-	const { trigger, isBinary = false, unSelectChanges, isUncommitted }: Props = $props();
-	const [stackService, project] = inject(StackService, Project);
+	const { trigger, unSelectChanges, selectionId, stackId, projectId }: Props = $props();
+	const [stackService, project, uiState, idSelection] = inject(
+		StackService,
+		Project,
+		UiState,
+		IdSelection
+	);
 	const userSettings = getContextStoreBySymbol<Settings, Writable<Settings>>(SETTINGS);
+	const isUncommitted = $derived(selectionId.type === 'worktree');
 
 	let confirmationModal: ReturnType<typeof Modal> | undefined;
 	let stashConfirmationModal: ReturnType<typeof Modal> | undefined;
 	let contextMenu: ReturnType<typeof ContextMenu>;
-	const projectId = $derived(project.id);
 
 	function isDeleted(item: FileItem): boolean {
 		return item.changes.some((change) => {
@@ -101,6 +111,27 @@
 	export function open(e: MouseEvent, item: FileItem) {
 		contextMenu.open(e, item);
 	}
+
+	async function uncommitChanges(stackId: string, commitId: string, changes: TreeChange[]) {
+		const { replacedCommits } = await stackService.uncommitChanges({
+			projectId,
+			stackId,
+			commitId,
+			changes: changesToDiffSpec(changes)
+		});
+		const newCommitId = replacedCommits.find(([before]) => before === commitId)?.[1];
+		const branchName = uiState.stack(stackId).selection.current?.branchName;
+		const selectedFiles = changes.map((change) => ({ ...selectionId, path: change.path }));
+
+		// Unselect the uncommitted files
+		idSelection.removeMany(selectedFiles);
+
+		if (newCommitId && branchName) {
+			// Update the selection to the new commit
+			uiState.stack(stackId).selection.set({ branchName, commitId: newCommitId });
+		}
+		contextMenu.close();
+	}
 </script>
 
 <ContextMenu bind:this={contextMenu} rightClickTrigger={trigger}>
@@ -110,7 +141,7 @@
 			<ContextMenuSection>
 				{#if item.changes.length > 0}
 					{@const changes = item.changes}
-					{#if !isBinary && isUncommitted}
+					{#if isUncommitted}
 						<ContextMenuItem
 							label="Discard changes"
 							onclick={() => {
@@ -123,12 +154,19 @@
 						<ContextMenuItem
 							label="Stash into branch"
 							onclick={() => {
-								stackService.newBranchName(project.id).then((name) => {
+								stackService.newBranchName(projectId).then((name) => {
 									stashBranchName = name.data || '';
 								});
 								stashConfirmationModal?.show(item);
 								contextMenu.close();
 							}}
+						/>
+					{/if}
+					{#if selectionId.type === 'commit' && stackId}
+						{@const commitId = selectionId.commitId}
+						<ContextMenuItem
+							label="Uncommit changes"
+							onclick={async () => uncommitChanges(stackId, commitId, changes)}
 						/>
 					{/if}
 					{#if changes.length === 1}
@@ -179,9 +217,7 @@
 			</ContextMenuSection>
 		{:else}
 			<ContextMenuSection>
-				<p class="text-13">
-					{'Woops! Malformed data :('}
-				</p>
+				<p class="text-13">'Woops! Malformed data :(</p>
 			</ContextMenuSection>
 		{/if}
 	{/snippet}
@@ -202,24 +238,25 @@
 					Are you sure you want to discard the changes<br />to the following files:
 				</p>
 				<ul class="file-list">
-					{#each changes as change}
+					{#each changes as change, i}
 						<FileListItem
 							filePath={change.path}
 							fileStatus={computeChangeStatus(change)}
 							clickable={false}
 							listMode="list"
+							isLast={i === changes.length - 1}
 						/>
 					{/each}
 				</ul>
 			{:else}
-				Discard the changes to all <span class="text-bold">
-					{changes.length} files
-				</span>?
+				<p>
+					Discard the changes to all <span class="text-bold">
+						{changes.length} files
+					</span>?
+				</p>
 			{/if}
 		{:else}
-			<p class="text-13">
-				{'Woops! Malformed data :('}
-			</p>
+			<p class="text-13">Woops! Malformed data :(</p>
 		{/if}
 	{/snippet}
 	{#snippet controls(close, item)}
@@ -277,11 +314,13 @@
 		color: var(--clr-text-2);
 	}
 	.file-list {
-		padding: 4px 0;
-		border-radius: var(--radius-m);
-		overflow: hidden;
-		background-color: var(--clr-bg-2);
+		display: flex;
+		flex-direction: column;
 		margin-top: 12px;
+		overflow: hidden;
+		border: 1px solid var(--clr-border-2);
+		border-radius: var(--radius-m);
+		background-color: var(--clr-bg-1);
 	}
 	.radio-aditional-info {
 		color: var(--clr-text-2);

@@ -26,11 +26,11 @@
 	const {
 		viewport,
 		initiallyVisible = false,
-		thickness = '0.563rem',
+		thickness = '.5rem',
 		padding = {},
 		shift = '0',
 		horz = false,
-		zIndex = 'var(--z-lifted)',
+		zIndex = 'var(--z-ground)',
 		whenToShow = 'hover',
 		onthumbdrag,
 		onscroll
@@ -38,15 +38,19 @@
 
 	$effect(() => {
 		if (viewport) {
-			setupViewport(viewport);
+			return setupViewport(viewport);
 		}
+	});
 
+	$effect(() => {
 		if (thumb) {
-			setupThumb(thumb);
+			return setupThumb(thumb);
 		}
+	});
 
+	$effect(() => {
 		if (track) {
-			setupTrack(track);
+			return setupTrack(track);
 		}
 	});
 
@@ -64,10 +68,10 @@
 
 	const vert = $derived(!horz);
 
-	const paddingTop = $derived(pxToRem(padding.top ?? 0));
-	const paddingBottom = $derived(pxToRem(padding.bottom ?? 0));
-	const paddingRight = $derived(pxToRem(padding.right ?? 0));
-	const paddingLeft = $derived(pxToRem(padding.left ?? 0));
+	const paddingTop = $derived(`${pxToRem(padding.top)}rem`);
+	const paddingBottom = $derived(`${pxToRem(padding.bottom)}rem`);
+	const paddingRight = $derived(`${pxToRem(padding.right)}rem`);
+	const paddingLeft = $derived(`${pxToRem(padding.left)}rem`);
 
 	let wholeHeight = $state(viewport?.scrollHeight ?? 0);
 	let wholeWidth = $state(viewport?.scrollWidth ?? 0);
@@ -89,13 +93,9 @@
 	const shouldShowOnHover = $derived(whenToShow === 'hover' && isScrollable);
 	const shouldAlwaysShow = $derived(whenToShow === 'always' && isScrollable);
 
-	let visible = $state(false);
-
-	// let visible = $state(false);
-
-	$effect(() => {
-		visible = shouldShowInitially || (shouldShowOnHover && initiallyVisible) || shouldAlwaysShow;
-	});
+	let visible = $derived(
+		shouldShowInitially || (shouldShowOnHover && initiallyVisible) || shouldAlwaysShow
+	);
 
 	/////////////////////
 	// TIMER FUNCTIONS //
@@ -157,7 +157,7 @@
 		};
 	}
 
-	function updateTrack() {
+	export function updateTrack() {
 		wholeHeight = viewport?.scrollHeight ?? 0;
 		wholeWidth = viewport?.scrollWidth ?? 0;
 		trackHeight = viewport?.clientHeight ?? 0;
@@ -278,6 +278,7 @@
 	}
 </script>
 
+<!-- {#if mounted} -->
 <div
 	bind:this={track}
 	data-remove-from-draggable
@@ -290,8 +291,8 @@
 	style:height={vert ? `100%` : thickness}
 	style:z-index={zIndex}
 	style="
-    --scrollbar-shift-vertical: {vert ? '0' : shift};
-    --scrollbar-shift-horizontal: {horz ? '0' : shift};
+    --scrollbar-shift-vertical: {vert ? '0' : shift || 0};
+    --scrollbar-shift-horizontal: {horz ? '0' : shift || 0};
     "
 >
 	<div
@@ -310,34 +311,37 @@
 	></div>
 </div>
 
+<!-- {/if} -->
+
 <style>
 	.scrollbar-track {
+		position: absolute;
 		/* scrollbar variables */
 		--scrollbar-shift-vertical: 0;
 		--scrollbar-shift-horizontal: 0;
+		right: var(--scrollbar-shift-horizontal);
 		/* variable props */
 		bottom: var(--scrollbar-shift-vertical);
-		right: var(--scrollbar-shift-horizontal);
-		/* other props */
-		position: absolute;
+		/* background-color: rgba(0, 0, 255, 0.1); */
 	}
 
 	.scrollbar-thumb {
+		/* other props */
+		position: absolute;
+		top: var(--thumb-top);
+		left: var(--thumb-left);
 		/* variable props */
 		width: var(--thumb-width);
 		height: var(--thumb-height);
-		top: var(--thumb-top);
-		left: var(--thumb-left);
-		/* other props */
-		position: absolute;
 		background-color: var(--clr-scale-ntrl-0);
 		opacity: 0;
+		will-change: transform, opacity;
 	}
 
 	/* modify vertical scrollbar */
 	.scrollbar-track.vert {
 		& .scrollbar-thumb {
-			transform: scaleX(0.6);
+			transform: scaleX(0.7) translateZ(0);
 			transform-origin: right;
 		}
 	}
@@ -345,15 +349,19 @@
 	/* modify horizontal scrollbar */
 	.scrollbar-track.horz {
 		& .scrollbar-thumb {
-			transform: scaleY(0.65);
+			transform: scaleY(0.7) translateZ(0);
 			transform-origin: bottom;
 		}
 	}
 
 	/* MODIFIERS */
+
 	.show-scrollbar {
 		& .scrollbar-thumb {
 			opacity: 0.15;
+			transition:
+				opacity 0.2s,
+				transform 0.15s;
 		}
 	}
 
@@ -363,23 +371,20 @@
 	.thumb-dragging {
 		& .scrollbar-thumb {
 			opacity: 0.25;
-			transition:
-				opacity 0.2s,
-				transform 0.15s;
 		}
 	}
 	/* vertical */
 	.show-scrollbar.vert:hover,
 	.thumb-dragging.vert {
 		& .scrollbar-thumb {
-			transform: scaleY(1);
+			transform: scaleY(1) translateZ(0);
 		}
 	}
 	/* horizontal */
 	.show-scrollbar.horz:hover,
 	.thumb-dragging.horz {
 		& .scrollbar-thumb {
-			transform: scaleX(1);
+			transform: scaleX(1) translateZ(0);
 		}
 	}
 </style>

@@ -1,5 +1,7 @@
 <script lang="ts" module>
 	export interface CreatePrParams {
+		stackId: string;
+		branchName: string;
 		title: string;
 		body: string;
 		draft: boolean;
@@ -13,23 +15,28 @@
 	import { AIService } from '$lib/ai/service';
 	import { PostHogWrapper } from '$lib/analytics/posthog';
 	import { BaseBranch } from '$lib/baseBranch/baseBranch';
+	import { type Commit } from '$lib/branches/v3';
 	import { projectAiGenEnabled } from '$lib/config/config';
 	import { ButRequestDetailsService } from '$lib/forge/butRequestDetailsService';
 	import { DefaultForgeFactory } from '$lib/forge/forgeFactory.svelte';
 	import { mapErrorToToast } from '$lib/forge/github/errorMap';
+	import { GitHubPrService } from '$lib/forge/github/githubPrService.svelte';
 	import { type PullRequest } from '$lib/forge/interface/types';
-	import { ReactivePRBody, ReactivePRTitle } from '$lib/forge/prContents.svelte';
+	import { PrPersistedStore } from '$lib/forge/prContents';
 	import {
 		BrToPrService,
 		updatePrDescriptionTables as updatePrStackInfo
 	} from '$lib/forge/shared/prFooter';
-	import { TemplateService } from '$lib/forge/templateService';
 	import { StackPublishingService } from '$lib/history/stackPublishingService';
 	import { showError, showToast } from '$lib/notifications/toasts';
 	import { ProjectsService } from '$lib/project/projectsService';
+	import { RemotesService } from '$lib/remotes/remotesService';
 	import { StackService } from '$lib/stacks/stackService.svelte';
+	import { TestId } from '$lib/testing/testIds';
+	import { parseRemoteUrl } from '$lib/url/gitUrl';
 	import { UserService } from '$lib/user/userService';
 	import { getBranchNameFromRef } from '$lib/utils/branch';
+	import { splitMessage } from '$lib/utils/commitMessage';
 	import { sleep } from '$lib/utils/sleep';
 	import { getContext } from '@gitbutler/shared/context';
 	import { persisted } from '@gitbutler/shared/persisted';
@@ -46,10 +53,12 @@
 		projectId: string;
 		stackId: string;
 		branchName: string;
+		prNumber?: number;
+		reviewId?: string;
 		onClose: () => void;
 	};
 
-	const { projectId, stackId, branchName, onClose }: Props = $props();
+	const { projectId, stackId, branchName, prNumber, reviewId, onClose }: Props = $props();
 
 	const baseBranch = getContext(BaseBranch);
 	const forge = getContext(DefaultForgeFactory);
@@ -61,18 +70,15 @@
 	const stackService = getContext(StackService);
 	const projectsService = getContext(ProjectsService);
 	const userService = getContext(UserService);
-	const templateService = getContext(TemplateService);
 	const aiService = getContext(AIService);
+	const remotesService = getContext(RemotesService);
 
 	const user = userService.user;
 	const project = projectsService.getProjectStore(projectId);
 
 	const [publishBranch, branchPublishing] = stackService.publishBranch;
-	const [updateBranchPrNumber, PRNumberUpdate] = stackService.updateBranchPrNumber;
 	const [pushStack, stackPush] = stackService.pushStack;
 
-	const branchResult = $derived(stackService.branchByName(projectId, stackId, branchName));
-	const branch = $derived(branchResult.current.data);
 	const branchesResult = $derived(stackService.branches(projectId, stackId));
 	const branches = $derived(branchesResult.current.data || []);
 	const branchParentResult = $derived(
@@ -91,12 +97,11 @@
 	const commits = $derived(commitsResult.current.data || []);
 
 	const canPublish = stackPublishingService.canPublish;
-	const prNumber = $derived(branch?.prNumber ?? undefined);
 
 	const prResult = $derived(prNumber ? prService?.get(prNumber) : undefined);
 	const pr = $derived(prResult?.current.data);
 
-	const forgeBranch = $derived(branch?.name ? forge.current.branch(branch?.name) : undefined);
+	const forgeBranch = $derived(branchName ? forge.current.branch(branchName) : undefined);
 	const baseBranchName = $derived(baseBranch.shortName);
 
 	const createDraft = persisted<boolean>(false, 'createDraftPr');
@@ -108,16 +113,7 @@
 	);
 
 	let titleInput = $state<ReturnType<typeof Textbox>>();
-
-	// Available pull request templates.
-	let templates = $state<string[]>([]);
-
-	// Load the available templates when the component is mounted.
-	$effect(() => {
-		templateService.getAvailable(forge.current.name).then((templatesResponse) => {
-			templates = templatesResponse;
-		});
-	});
+	let messageEditor = $state<MessageEditor>();
 
 	// AI things
 	const aiGenEnabled = projectAiGenEnabled(projectId);
@@ -131,26 +127,56 @@
 		});
 	});
 
+	let isCreatingReview = $state<boolean>(false);
 	const isExecuting = $derived(
 		branchPublishing.current.isLoading ||
-			PRNumberUpdate.current.isLoading ||
 			stackPush.current.isLoading ||
-			aiIsLoading
+			aiIsLoading ||
+			isCreatingReview
 	);
 
-	const canPublishBR = $derived(!!($canPublish && branch?.name && !branch.reviewId));
+	const canPublishBR = $derived(!!($canPublish && branchName && !reviewId));
 	const canPublishPR = $derived(!!(forge.current.authenticated && !pr));
 
-	const prTitle = $derived(new ReactivePRTitle(projectId, commits, branch?.name ?? ''));
+	function getDefaultTitle(commits: Commit[]): string {
+		if (commits.length === 1) {
+			const commitMessage = commits[0]!.message;
+			const { title } = splitMessage(commitMessage);
+			return title;
+		}
+		return branchName;
+	}
 
-	const prBody = new ReactivePRBody();
+	function getDefaultBody(commits: Commit[]): string {
+		if (commits.length === 1) {
+			return splitMessage(commits[0]!.message).description;
+		}
+		return '';
+	}
+
+	const prTitle = $derived(
+		new PrPersistedStore({
+			cacheKey: 'prtitle_' + projectId + '_' + branchName,
+			commits,
+			defaultFn: getDefaultTitle
+		})
+	);
+
+	const prBody = $derived(
+		new PrPersistedStore({
+			cacheKey: 'prbody' + projectId + '_' + branchName,
+			commits,
+			defaultFn: getDefaultBody
+		})
+	);
 
 	$effect(() => {
-		prBody.init(projectId, branch?.description ?? '', commits, branch?.name ?? '');
+		prBody.setDefault(commits);
+		prTitle.setDefault(commits);
 	});
 
 	async function pushIfNeeded(): Promise<string | undefined> {
-		let upstreamBranchName: string | undefined = branch?.name;
+		let upstreamBranchName: string | undefined = branchName;
 		if (pushBeforeCreate) {
 			const firstPush = branchDetails?.pushStatus === 'completelyUnpushed';
 			const pushResult = await pushStack({
@@ -175,7 +201,7 @@
 	function shouldAddPrBody() {
 		// If there is a branch review already, then the BR to PR sync will
 		// update the PR description for us.
-		if (branch?.reviewId) return false;
+		if (reviewId) return false;
 		// If we can't publish a BR, then we must add the PR description
 		if (!canPublishBR) return true;
 		// If the user wants to create a butler request then we don't want
@@ -185,13 +211,24 @@
 
 	export async function createReview() {
 		if (isExecuting) return;
-		if (!branch) return;
 		if (!$user) return;
+
+		const effectivePRBody = (await messageEditor?.getPlaintext()) ?? '';
+		// Declare early to have them inside the function closure, in case
+		// the component unmounts or updates.
+		const closureStackId = stackId;
+		const closureBranchName = branchName;
+		const title = $prTitle;
+		const body = shouldAddPrBody() ? effectivePRBody : '';
+		const draft = $createDraft;
+
+		isCreatingReview = true;
+		await tick();
 
 		const upstreamBranchName = await pushIfNeeded();
 
-		let reviewId: string | undefined;
-		let prNumber: number | undefined;
+		let newReviewId: string | undefined;
+		let newPrNumber: number | undefined;
 
 		// Even if createButlerRequest is false, if we _cant_ create a PR, then
 		// We want to always create the BR, and vice versa.
@@ -199,7 +236,7 @@
 			const reviewId = await publishBranch({
 				projectId,
 				stackId,
-				topBranch: branch.name,
+				topBranch: branchName,
 				user: $user
 			});
 			if (!reviewId) {
@@ -207,34 +244,39 @@
 				return;
 			}
 			posthog.capture('Butler Review Created');
-			butRequestDetailsService.setDetails(reviewId, prTitle.value, prBody.value);
-		}
-		if ((canPublishPR && $createPullRequest) || !canPublishBR) {
-			const pr = await createPr({
-				title: prTitle.value,
-				body: shouldAddPrBody() ? prBody.value : '',
-				draft: $createDraft,
-				upstreamBranchName
-			});
-			prNumber = pr?.number;
+			butRequestDetailsService.setDetails(reviewId, $prTitle, effectivePRBody);
 		}
 
-		if (reviewId && prNumber && $project?.api?.repository_id) {
-			brToPrService.refreshButRequestPrDescription(prNumber, reviewId, $project.api.repository_id);
+		if ((canPublishPR && $createPullRequest) || !canPublishBR) {
+			const pr = await createPr({
+				stackId: closureStackId,
+				branchName: closureBranchName,
+				title,
+				body,
+				draft,
+				upstreamBranchName
+			});
+			newPrNumber = pr?.number;
+		}
+
+		if (newReviewId && newPrNumber && $project?.api?.repository_id) {
+			brToPrService.refreshButRequestPrDescription(
+				newPrNumber,
+				newReviewId,
+				$project.api.repository_id
+			);
 		}
 
 		prBody.reset();
 		prTitle.reset();
 
+		isCreatingReview = false;
 		onClose();
 	}
 
 	async function createPr(params: CreatePrParams): Promise<PullRequest | undefined> {
 		if (!forge) {
 			error('Pull request service not available');
-			return;
-		}
-		if (!branch) {
 			return;
 		}
 
@@ -258,7 +300,7 @@
 			}
 
 			// Find the index of the current branch so we know where we want to point the pr.
-			const currentIndex = branches.findIndex((b) => b.name === branch.name);
+			const currentIndex = branches.findIndex((b) => b.name === params.branchName);
 			if (currentIndex === -1) {
 				throw new Error('Branch index not found.');
 			}
@@ -276,16 +318,35 @@
 				base = branchParent.name;
 			}
 
+			const pushRemoteName = baseBranch.actualPushRemoteName();
+			const allRemotes = await remotesService.remotes(projectId);
+			const pushRemote = allRemotes.find((r) => r.name === pushRemoteName);
+			const pushRemoteUrl = pushRemote?.url;
+
+			const repoInfo = parseRemoteUrl(pushRemoteUrl);
+
+			const upstreamName =
+				prService instanceof GitHubPrService
+					? repoInfo?.owner
+						? `${repoInfo.owner}:${params.upstreamBranchName}`
+						: params.upstreamBranchName
+					: params.upstreamBranchName;
+
 			const pr = await prService.createPr({
 				title: params.title,
 				body: params.body,
 				draft: params.draft,
 				baseBranchName: base,
-				upstreamName: params.upstreamBranchName
+				upstreamName
 			});
 
 			// Store the new pull request number with the branch data.
-			await updateBranchPrNumber({ projectId, stackId, branchName, prNumber: pr.number });
+			await stackService.updateBranchPrNumber({
+				projectId,
+				stackId: params.stackId,
+				branchName: params.branchName,
+				prNumber: pr.number
+			});
 
 			// If we now have two or more pull requests we add a stack table to the description.
 			prNumbers[currentIndex] = pr.number;
@@ -321,21 +382,23 @@
 
 		try {
 			const description = await aiService?.describePR({
-				title: prTitle.value,
-				body: prBody.value,
+				title: $prTitle,
+				body: $prBody,
 				commitMessages: commits.map((c) => c.message),
-				prBodyTemplate: prBody.templateBody,
+				prBodyTemplate: prBody.default,
 				onToken: (token) => {
 					if (firstToken) {
 						prBody.reset();
 						firstToken = false;
 					}
-					prBody.append(token, true);
+					prBody.append(token);
+					messageEditor?.setText($prBody);
 				}
 			});
 
 			if (description) {
-				prBody.set(description, true);
+				prBody.set(description);
+				messageEditor?.setText($prBody);
 			}
 		} finally {
 			aiIsLoading = false;
@@ -353,45 +416,41 @@
 	};
 </script>
 
-<!-- HEADER -->
-
-<!-- MAIN FIELDS -->
 <div class="pr-content">
 	<Textbox
+		testId={TestId.ReviewTitleInput}
 		autofocus
 		size="large"
 		placeholder="PR title"
 		bind:this={titleInput}
-		value={prTitle.value}
+		value={$prTitle}
 		disabled={isExecuting}
-		oninput={(value: string) => {
-			prTitle.set(value);
-		}}
+		oninput={(value: string) => prTitle.set(value)}
 		onkeydown={(e: KeyboardEvent) => {
 			if (e.key === 'Enter' || e.key === 'Tab') {
 				e.preventDefault();
-				prBody.descriptionInput?.focus();
+				messageEditor?.focus();
 			}
 		}}
 	/>
 
-	<!-- PR TEMPLATE SELECT -->
-	{#if templates.length > 0}
-		<PrTemplateSection
-			bind:selectedTemplate={prBody.templateBody}
-			{templates}
-			disabled={isExecuting}
-		/>
-	{/if}
-
-	<!-- DESCRIPTION FIELD -->
-	<MessageEditor
-		bind:this={prBody.descriptionInput}
+	<PrTemplateSection
 		{projectId}
 		disabled={isExecuting}
-		initialValue={prBody.value}
+		onselect={(value) => {
+			prBody.set(value);
+			messageEditor?.setText(value);
+		}}
+	/>
+
+	<MessageEditor
+		bind:this={messageEditor}
+		testId={TestId.ReviewDescriptionInput}
+		{projectId}
+		disabled={isExecuting}
+		initialValue={$prBody}
 		enableFileUpload
-		placeholder={'PR Description'}
+		placeholder="PR Description"
 		{onAiButtonClick}
 		{canUseAI}
 		{aiIsLoading}
@@ -466,35 +525,35 @@
 
 <style lang="postcss">
 	.pr-content {
-		flex: 1;
 		display: flex;
+		flex: 1;
 		flex-direction: column;
-		gap: 14px;
 		overflow: hidden;
+		gap: 14px;
 	}
 
 	.options {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
-		gap: 8px;
 		align-items: stretch;
 		width: 100%;
+		gap: 8px;
 	}
 
 	.option-card {
 		display: flex;
 		flex-direction: column;
-		border-radius: var(--radius-m);
 		overflow: hidden;
+		border-radius: var(--radius-m);
 	}
 
 	/* OPTION BOX */
 	.option-card-header {
 		display: flex;
 		flex-grow: 1;
+		padding: 12px;
 		border: 1px solid var(--clr-border-2);
 		border-radius: var(--radius-m);
-		padding: 12px;
 		transition: background-color var(--transition-fast);
 
 		&:hover {
@@ -506,40 +565,39 @@
 		}
 
 		&.selected {
-			background-color: var(--clr-theme-pop-bg);
 			border-color: var(--clr-theme-pop-element);
+			background-color: var(--clr-theme-pop-bg);
 		}
 	}
 
 	.option-card-header-content {
 		display: flex;
+		flex-grow: 1;
 		flex-direction: column;
 		justify-content: flex-end;
 		gap: 10px;
-		flex-grow: 1;
 	}
 
 	.option-card-header-title {
 		display: flex;
-		gap: 8px;
 		align-items: center;
+		gap: 8px;
 	}
 
 	.option-card-header-action {
-		flex-grow: 0;
-
 		display: block;
+		flex-grow: 0;
 	}
 
 	.option-subcard-drafty {
-		padding: 12px;
 		display: flex;
-		justify-content: space-between;
 		align-items: center;
-
-		border-radius: 0 0 var(--radius-m) var(--radius-m);
+		justify-content: space-between;
+		padding: 12px;
 		border: 1px solid var(--clr-border-2);
 		border-top: none;
+
+		border-radius: 0 0 var(--radius-m) var(--radius-m);
 		transition: background-color var(--transition-fast);
 
 		&:hover {
@@ -547,10 +605,10 @@
 		}
 
 		&.disabled {
-			pointer-events: none;
+			background-color: var(--clr-bg-2);
 			cursor: not-allowed;
 			opacity: 0.5;
-			background-color: var(--clr-bg-2);
+			pointer-events: none;
 		}
 	}
 

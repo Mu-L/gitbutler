@@ -15,8 +15,13 @@ fn workdir_vbranch_restore() -> anyhow::Result<()> {
         repo, project, ctx, ..
     } = &test;
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     let worktree_dir = repo.path();
     for round in 0..3 {
@@ -31,6 +36,7 @@ fn workdir_vbranch_restore() -> anyhow::Result<()> {
                 name: Some(round.to_string()),
                 ..Default::default()
             },
+            ctx.project().exclusive_worktree_access().write_permission(),
         )?;
         gitbutler_branch_actions::create_commit(
             ctx,
@@ -45,7 +51,11 @@ fn workdir_vbranch_restore() -> anyhow::Result<()> {
         );
         assert_eq!(ctx.should_auto_snapshot(Duration::ZERO)?, line_count > 20);
     }
-    let _empty = gitbutler_branch_actions::create_virtual_branch(ctx, &Default::default())?;
+    let _empty = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &Default::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )?;
 
     let snapshots = ctx.list_snapshots(10, None)?;
     assert_eq!(
@@ -92,10 +102,18 @@ fn basic_oplog() -> anyhow::Result<()> {
         repo, project, ctx, ..
     } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse()?)?;
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse()?,
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )?;
 
-    let stack_entry =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())?;
+    let stack_entry = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )?;
 
     // create commit
     fs::write(repo.path().join("file.txt"), "content")?;
@@ -124,8 +142,11 @@ fn basic_oplog() -> anyhow::Result<()> {
     std::fs::write(&base_merge_parent_path, "parent A")?;
 
     // create state with conflict state
-    let _empty_branch_id =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())?;
+    let _empty_branch_id = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )?;
 
     std::fs::remove_file(&base_merge_parent_path)?;
     std::fs::remove_file(&conflicts_path)?;
@@ -240,7 +261,12 @@ fn restores_gitbutler_workspace() -> anyhow::Result<()> {
         repo, project, ctx, ..
     } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse()?)?;
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse()?,
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )?;
 
     assert_eq!(
         VirtualBranchesHandle::new(project.gb_dir())
@@ -248,8 +274,11 @@ fn restores_gitbutler_workspace() -> anyhow::Result<()> {
             .len(),
         0
     );
-    let stack_entry =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())?;
+    let stack_entry = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )?;
     assert_eq!(
         VirtualBranchesHandle::new(project.gb_dir())
             .list_stacks_in_workspace()?
@@ -353,10 +382,20 @@ fn restores_gitbutler_workspace() -> anyhow::Result<()> {
 fn head_corrupt_is_recreated_automatically() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     let snapshots = ctx.list_snapshots(10, None).unwrap();
     assert_eq!(
@@ -373,8 +412,13 @@ fn head_corrupt_is_recreated_automatically() {
     )
     .unwrap();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .expect("the snapshot doesn't fail despite the corrupt head");
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .expect("the snapshot doesn't fail despite the corrupt head");
 
     let snapshots = ctx.list_snapshots(10, None).unwrap();
     assert_eq!(

@@ -6,15 +6,16 @@
 		series: string[];
 		selected?: boolean;
 		origin?: boolean;
+		fontSize?: string;
 	}
 
-	const { series, selected, origin }: Props = $props();
+	const { series, selected, fontSize = '12', origin }: Props = $props();
 </script>
 
 <div class="series-labels-row">
 	<SeriesIcon {origin} single={series.length === 1} outlined={selected} />
 
-	<div class="series-name text-12 text-semibold contrast">
+	<div class="series-name text-{fontSize} text-semibold contrast">
 		<span class="truncate">{series[0]}</span>
 	</div>
 
@@ -33,7 +34,7 @@
 
 	{#if series.length > 1}
 		<Tooltip text={'→ ' + series.slice(1).join(' → ')}>
-			<div class="series-name more-series text-12 text-semibold">
+			<div class="series-name more-series text-{fontSize} text-semibold">
 				<span>{series.length - 1} more</span>
 			</div>
 		</Tooltip>
@@ -42,21 +43,21 @@
 
 <style lang="postcss">
 	.series-labels-row {
-		flex: 1;
 		display: flex;
+		flex: 1;
 		align-items: center;
-		gap: 4px;
 		width: fit-content;
 		max-width: 100%;
 		overflow: hidden;
+		gap: 4px;
 	}
 
 	.series-name {
 		display: flex;
 		align-items: center;
-		color: var(--clr-text-2);
 		margin-left: 3px;
 		overflow: hidden;
+		color: var(--clr-text-2);
 
 		&.contrast {
 			color: var(--clr-text-1);

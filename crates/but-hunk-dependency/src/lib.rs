@@ -133,6 +133,7 @@ use but_core::{TreeChange, UnifiedDiff};
 use gitbutler_oxidize::{ObjectIdExt, OidExt};
 use gitbutler_repo::logging::{LogUntil, RepositoryExt};
 use gix::prelude::ObjectIdExt as _;
+use gix::trace;
 pub use input::{InputCommit, InputDiffHunk, InputFile, InputStack};
 
 mod ranges;
@@ -148,7 +149,7 @@ mod utils;
 /// `common_merge_base` is expected to be the merge base that all `stacks` have in common, as would be created with [gix::Repository::merge_base_octopus()].
 pub fn workspace_stacks_to_input_stacks(
     repo: &gix::Repository,
-    stacks: &[but_workspace::StackEntry],
+    stacks: &[but_workspace::ui::StackEntry],
     common_merge_base: gix::ObjectId,
 ) -> anyhow::Result<Vec<InputStack>> {
     let mut out = Vec::new();
@@ -162,7 +163,7 @@ pub fn workspace_stacks_to_input_stacks(
         )?;
         for commit_id in commit_ids {
             let commit = repo.find_commit(commit_id)?;
-            let (tree_changes, _) = but_core::diff::commit_changes(
+            let (tree_changes, _) = but_core::diff::tree_changes(
                 repo,
                 commit.parent_ids().next().map(|id| id.detach()),
                 commit_id,
@@ -187,7 +188,11 @@ pub fn tree_changes_to_input_files(
     for change in changes {
         let diff = change.unified_diff(repo, 0)?;
         let UnifiedDiff::Patch { hunks, .. } = diff else {
-            unreachable!("Test repos don't have file-size issue")
+            trace::warn!(
+                "Skipping change at '{}' as it doesn't have hunks to calculate dependencies for (binary/too large)",
+                change.path
+            );
+            continue;
         };
         let change_type = change.status.kind();
         files.push(InputFile {

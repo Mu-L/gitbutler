@@ -10,7 +10,6 @@
 	import { type CommitStatusType } from '$lib/commits/commit';
 	import { createCommitStore } from '$lib/commits/contexts';
 	import { CommitDropData } from '$lib/commits/dropHandler';
-	import { persistedCommitMessage } from '$lib/config/config';
 	import { draggableCommit } from '$lib/dragging/draggable';
 	import { NON_DRAGGABLE } from '$lib/dragging/draggables';
 	import { RemoteFile } from '$lib/files/file';
@@ -82,8 +81,6 @@
 		commitStore.set(commit);
 	});
 
-	const persistedMessage = persistedCommitMessage(project.id, stack?.id || '');
-
 	let branchCardElement = $state<HTMLElement>();
 	let kebabMenuTrigger = $state<HTMLButtonElement>();
 	let draggableCommitElement = $state<HTMLElement>();
@@ -122,8 +119,6 @@
 			console.error('Unable to undo commit');
 			return;
 		}
-		$persistedMessage = commit.description;
-		description = commit.description;
 		await stackService.uncommit({
 			projectId: project.id,
 			stackId: stack.id,
@@ -215,13 +210,11 @@
 </Modal>
 
 <Modal bind:this={conflictResolutionConfirmationModal} width="small">
-	{#snippet children()}
-		<div>
-			<p>It's generally better to start resolving conflicts from the bottom up.</p>
-			<br />
-			<p>Are you sure you want to resolve conflicts for this commit?</p>
-		</div>
-	{/snippet}
+	<div>
+		<p>It's generally better to start resolving conflicts from the bottom up.</p>
+		<br />
+		<p>Are you sure you want to resolve conflicts for this commit?</p>
+	</div>
 	{#snippet controls(close)}
 		<Button kind="outline" type="reset" onclick={close}>Cancel</Button>
 		<AsyncButton
@@ -331,9 +324,11 @@
 				<span class="text-13 text-body text-semibold commit__empty-title">empty commit message</span
 				>
 			{:else}
-				<h5 class="text-13 text-body text-semibold commit__title" class:truncate={!showDetails}>
-					{commit.descriptionTitle}
-				</h5>
+				<Tooltip text={commit.descriptionTitle}>
+					<h5 class="text-13 text-body text-semibold commit__title" class:truncate={!showDetails}>
+						{commit.descriptionTitle}
+					</h5>
+				</Tooltip>
 
 				<div class="text-11 text-semibold commit__subtitle">
 					{#if commit.isSigned}
@@ -348,7 +343,7 @@
 
 					{#if conflicted}
 						<Tooltip
-							text={"Conflicted commits must be resolved before they can be amended or squashed.\nPlease resolve conflicts using the 'Resolve conflicts' button"}
+							text="Conflicted commits must be resolved before they can be amended or squashed.\nPlease resolve conflicts using the 'Resolve conflicts' button"
 						>
 							<div class="commit__conflicted">
 								<Icon name="warning-small" />
@@ -462,10 +457,10 @@
 
 <style lang="postcss">
 	.commit-row {
-		position: relative;
 		display: flex;
-		gap: 12px;
+		position: relative;
 		width: 100%;
+		gap: 12px;
 		background-color: var(--clr-bg-1);
 		transition: background-color var(--transition-fast);
 
@@ -492,8 +487,8 @@
 		&.not-draggable {
 			&:hover {
 				& .commit__drag-icon {
-					pointer-events: none;
 					opacity: 0;
+					pointer-events: none;
 				}
 			}
 		}
@@ -514,8 +509,8 @@
 	.commit-card {
 		display: flex;
 		position: relative;
-		flex-direction: column;
 		flex: 1;
+		flex-direction: column;
 		overflow: hidden;
 	}
 
@@ -528,38 +523,38 @@
 
 	/* HEADER */
 	.commit__header {
-		position: relative;
 		display: flex;
+		position: relative;
 		flex-direction: column;
-		gap: 6px;
 		padding: 14px 14px 14px 0;
+		gap: 6px;
 	}
 
 	.commit__drag-icon {
-		cursor: grab;
-		position: absolute;
 		display: flex;
-		bottom: 10px;
+		position: absolute;
 		right: 6px;
+		bottom: 10px;
 		color: var(--clr-text-3);
+		cursor: grab;
 
 		opacity: 0;
 		transition: opacity var(--transition-fast);
 	}
 
 	.commit__title {
-		flex: 1;
-		text-align: left;
 		display: block;
-		color: var(--clr-text-1);
+		flex: 1;
 		width: 100%;
+		color: var(--clr-text-1);
+		text-align: left;
 	}
 
 	.commit__description {
 		color: var(--clr-text-2);
 		white-space: pre-wrap;
-		user-select: text;
 		cursor: text;
+		user-select: text;
 	}
 
 	.commit__empty-title {
@@ -568,16 +563,16 @@
 
 	.commit__subtitle {
 		display: flex;
-		align-items: center;
 		flex-wrap: nowrap;
+		align-items: center;
+		overflow: hidden;
 		gap: 4px;
 		color: var(--clr-text-2);
-		overflow: hidden;
 
 		& > span {
-			white-space: nowrap;
 			overflow: hidden;
 			text-overflow: ellipsis;
+			white-space: nowrap;
 		}
 	}
 
@@ -587,8 +582,8 @@
 
 	/* SUBTITLE LINK BUTTON */
 	.commit__subtitle-btn {
-		flex-shrink: 0;
 		display: flex;
+		flex-shrink: 0;
 		align-items: center;
 
 		text-decoration-line: underline;
@@ -600,9 +595,9 @@
 
 			& .commit__subtitle-btn__icon {
 				width: var(--size-icon);
-				opacity: 1;
 				margin-left: 2px;
 				transform: scale3d(1, 1, 1);
+				opacity: 1;
 			}
 		}
 	}
@@ -614,9 +609,9 @@
 	.commit__subtitle-btn__icon {
 		display: flex;
 		width: 0;
-		opacity: 0;
 		margin-left: 0;
 		transform: scale3d(0.6, 0.6, 0.6); /* CSS glitch fix */
+		opacity: 0;
 		transition:
 			width var(--transition-medium),
 			opacity var(--transition-fast),
@@ -640,34 +635,34 @@
 	.commit__details {
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
-		padding-bottom: 12px;
 		padding-right: 14px;
+		padding-bottom: 12px;
+		gap: 12px;
 	}
 
 	.commit__actions {
-		overflow: visible;
 		display: flex;
-		gap: 4px;
+		overflow: visible;
 		overflow-x: auto;
+		gap: 4px;
 	}
 
 	/* FILES */
 	.files-container {
-		border: 1px solid var(--clr-border-2);
-		border-radius: var(--radius-m);
 		margin-right: 14px;
 		margin-bottom: 14px;
 		overflow: hidden;
+		border: 1px solid var(--clr-border-2);
+		border-radius: var(--radius-m);
 	}
 
 	/* MODIFIERS */
 	.is-commit-open {
 		& .commit__subtitle-btn__icon {
 			width: var(--size-icon);
-			opacity: 1;
 			margin-left: 2px;
 			transform: scale3d(1, 1, 1);
+			opacity: 1;
 		}
 	}
 </style>

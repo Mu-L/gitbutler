@@ -1,3 +1,4 @@
+import { goto } from '$app/navigation';
 import { invoke } from '$lib/backend/ipc';
 import { showError } from '$lib/notifications/toasts';
 import { Project, type CloudProject } from '$lib/project/project';
@@ -8,7 +9,6 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { plainToInstance } from 'class-transformer';
 import { derived, get, writable, type Readable } from 'svelte/store';
 import type { HttpClient } from '@gitbutler/shared/network/httpClient';
-import { goto } from '$app/navigation';
 
 export class ProjectsService {
 	private persistedId = persisted<string | undefined>(undefined, 'lastProject');
@@ -40,9 +40,10 @@ export class ProjectsService {
 		this.projects.set(await this.loadAll());
 	}
 
-	async setActiveProject(projectId: string): Promise<void> {
-		await invoke('set_project_active', { id: projectId });
+	async setActiveProject(projectId: string): Promise<boolean> {
+		const is_exclusive = await invoke<boolean>('set_project_active', { id: projectId });
 		await this.reload();
+		return is_exclusive;
 	}
 
 	async getProject(projectId: string, noValidation?: boolean) {
@@ -61,7 +62,7 @@ export class ProjectsService {
 		return store;
 	}
 
-	async updateProject(project: Project & { unset_bool?: boolean }) {
+	async updateProject(project: Project & { unset_bool?: boolean; unset_forge_override?: boolean }) {
 		await invoke('update_project', { project: project });
 		await this.reload();
 	}
@@ -82,7 +83,7 @@ export class ProjectsService {
 		if (selectedPath) {
 			if (selectedPath === null) return;
 			if (Array.isArray(selectedPath) && selectedPath.length !== 1) return;
-			return Array.isArray(selectedPath) ? selectedPath[0] : await selectedPath;
+			return Array.isArray(selectedPath) ? selectedPath[0] : ((await selectedPath) ?? undefined);
 		}
 	}
 
@@ -158,6 +159,10 @@ export class ProjectsService {
 
 	setLastOpenedProject(projectId: string) {
 		this.persistedId.set(projectId);
+	}
+
+	unsetLastOpenedProject() {
+		this.persistedId.set(undefined);
 	}
 
 	async createCloudProject(params: {

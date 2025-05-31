@@ -16,6 +16,7 @@ use gix::status::tree_index::TrackRenames;
 use std::cmp::Ordering;
 use std::io::Read;
 use std::path::PathBuf;
+use tracing::instrument;
 
 /// Identify where a [`TreeChange`] is from.
 #[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
@@ -30,20 +31,30 @@ enum Origin {
 ///
 /// It's equivalent to a `git status` which is "boiled down" into all the changes that one would have to add into `HEAD^{tree}`
 /// to get a commit with a tree equal to the current worktree.
+#[instrument(skip(repo), err(Debug))]
 pub fn worktree_changes(repo: &gix::Repository) -> anyhow::Result<WorktreeChanges> {
     let rewrites = gix::diff::Rewrites::default(); /* standard Git rewrite handling for everything */
     debug_assert!(
         rewrites.copies.is_none(),
         "TODO: copy tracking needs specific support wherever 'previous_path()' is called."
     );
+    let has_submodule_ignore_configuration = repo.modules()?.is_some_and(|modules| {
+        modules
+            .names()
+            .any(|name| modules.ignore(name).ok().flatten().is_some())
+    });
     let status_changes = repo
         .status(gix::progress::Discard)?
         .tree_index_track_renames(TrackRenames::Given(rewrites))
         .index_worktree_rewrites(rewrites)
         // Learn about submodule changes, but only do the cheap checks, showing only what we could commit.
-        .index_worktree_submodules(gix::status::Submodule::Given {
-            ignore: gix::submodule::config::Ignore::Dirty,
-            check_dirty: true,
+        .index_worktree_submodules(if has_submodule_ignore_configuration {
+            gix::status::Submodule::AsConfigured { check_dirty: true }
+        } else {
+            gix::status::Submodule::Given {
+                ignore: gix::submodule::config::Ignore::Dirty,
+                check_dirty: true,
+            }
         })
         .index_worktree_options_mut(|opts| {
             if let Some(opts) = opts.dirwalk_options.as_mut() {
@@ -271,6 +282,13 @@ pub fn worktree_changes(repo: &gix::Repository) -> anyhow::Result<WorktreeChange
                 let Some(checked_out_head_id) = change.checked_out_head_id else {
                     continue;
                 };
+                // We can arrive here if the user configures to `ignore = none`, and there are
+                // only worktree changes.
+                // As we can't do anything with that unless submodules become first-class citizens,
+                // we ignore this case for now.
+                if entry.id == checked_out_head_id {
+                    continue;
+                }
                 let previous_state = ChangeState {
                     id: entry.id,
                     kind: into_tree_entry_kind(entry.mode)?,

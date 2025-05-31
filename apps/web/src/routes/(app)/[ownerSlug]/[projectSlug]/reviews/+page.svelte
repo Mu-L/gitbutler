@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { AuthService } from '$lib/auth/authService.svelte';
 	import BranchIndexCard from '$lib/components/branches/BranchIndexCard.svelte';
 	import DashboardLayout from '$lib/components/dashboard/DashboardLayout.svelte';
@@ -13,7 +14,6 @@
 	import Button from '@gitbutler/ui/Button.svelte';
 	import Select from '@gitbutler/ui/select/Select.svelte';
 	import SelectItem from '@gitbutler/ui/select/SelectItem.svelte';
-	import { goto } from '$app/navigation';
 
 	// Get authentication service and check if user is logged in
 	const authService = getContext(AuthService);
@@ -34,7 +34,7 @@
 
 	let filterStatus = $state<BranchStatus>(BranchStatus.All);
 	const selectableStatuses = [
-		{ value: BranchStatus.All, label: 'All' },
+		{ value: BranchStatus.All, label: 'All branches' },
 		{ value: BranchStatus.Closed, label: 'Closed' },
 		{ value: BranchStatus.Active, label: 'Active' },
 		{ value: BranchStatus.Inactive, label: 'Inactive' }
@@ -61,7 +61,7 @@
 		}}
 	>
 		{#snippet customSelectButton()}
-			<Button kind="ghost" icon="chevron-down" size="tag">
+			<Button kind="ghost" icon="chevron-down">
 				{selectableStatuses.find((status) => status.value === filterStatus)!.label}
 			</Button>
 		{/snippet}
@@ -150,7 +150,8 @@
 
 		justify-content: space-between;
 
-		margin-bottom: 24px;
+		margin-top: 8px;
+		margin-bottom: 16px;
 	}
 	.title {
 		display: flex;
@@ -163,17 +164,17 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		text-align: center;
 		padding: 64px 0;
-		background-color: #fff;
-		border-radius: 12px;
 		border: 1px solid #ddd;
+		border-radius: 12px;
+		background-color: #fff;
+		text-align: center;
 	}
 
 	.empty-state h3 {
 		margin: 16px 0 8px;
-		font-size: 18px;
 		font-weight: 600;
+		font-size: 18px;
 	}
 
 	.empty-state p {

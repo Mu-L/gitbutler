@@ -6,22 +6,16 @@
 		details: Snippet;
 		selected?: boolean;
 		onclick?: () => void;
+		testId?: string;
 	};
 
-	const { content, details, selected = $bindable(), onclick }: Props = $props();
+	const { content, details, selected, onclick, testId }: Props = $props();
 </script>
 
-<div
-	role="presentation"
-	{onclick}
-	class="branches-list-card"
-	class:branches-list-card_selected={selected}
->
+<div data-testid={testId} role="presentation" {onclick} class="branches-list-card" class:selected>
 	<div class="branches-list-card__content">
 		{@render content()}
 	</div>
-
-	<hr class="branches-list-card__hr" />
 
 	<div class="text-12 branches-list-card__details">
 		{@render details()}
@@ -31,23 +25,34 @@
 <style class="postcss">
 	/* TARGET CARD */
 	.branches-list-card {
-		cursor: pointer;
 		display: flex;
+		position: relative;
 		flex-direction: column;
+		padding: 14px;
 		gap: 10px;
 		background-color: var(--clr-bg-1);
-		padding: 14px 14px 14px 16px;
+		cursor: pointer;
 
 		&:not(:last-child) {
 			border-bottom: 1px solid var(--clr-border-2);
 		}
-	}
 
-	.branches-list-card__hr {
-		height: 1px;
-		background-color: var(--clr-text-3);
-		opacity: 0.3;
-		border: none;
+		&::after {
+			position: absolute;
+			top: 12px;
+			left: 0;
+			width: 5px;
+			height: calc(100% - 24px);
+			transform: translateX(-100%);
+			border-radius: 0 var(--radius-m) var(--radius-m) 0;
+			background-color: var(--clr-selected-in-focus-element);
+			content: '';
+			transition: transform var(--transition-medium);
+		}
+
+		&:not(.selected):hover {
+			background-color: var(--clr-bg-1-muted);
+		}
 	}
 
 	.branches-list-card__content {
@@ -58,12 +63,35 @@
 
 	.branches-list-card__details {
 		display: flex;
-		gap: 6px;
+		position: relative;
 		align-items: center;
+		margin-top: 2px;
+		padding-top: 10px;
+		gap: 6px;
 		color: var(--clr-text-2);
+
+		&::before {
+			position: absolute;
+			top: 0;
+			left: 0;
+			flex-shrink: 0;
+			width: 100%;
+			height: 1px;
+			background-color: var(--clr-text-3);
+			content: '';
+			opacity: 0.3;
+		}
+
+		&:empty {
+			display: none;
+		}
 	}
 
-	.branches-list-card_selected {
-		background-color: rgb(177, 153, 200);
+	.selected {
+		background-color: var(--clr-bg-1-muted);
+
+		&::after {
+			transform: translateX(0);
+		}
 	}
 </style>

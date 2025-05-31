@@ -101,7 +101,10 @@
 
 	function setAlignByMouse(e?: MouseEvent) {
 		if (!e) return;
-		menuPosition = { x: e.clientX, y: e.clientY };
+		const clientX = horizontalAlign === 'left' ? e.clientX - contextMenuWidth : e.clientX;
+		const clientY = side === 'top' ? e.clientY - contextMenuHeight : e.clientY;
+
+		menuPosition = { x: clientX, y: clientY };
 	}
 
 	function setAlignByTarget(target: HTMLElement) {
@@ -170,9 +173,11 @@
 						horizontalAlign = 'left';
 						setAlignment();
 					}
-					if (rect.bottom > viewport.bottom) {
-						side = 'top';
-						setAlignment();
+					if (rect.bottom > viewport.bottom && rect.top > viewport.top) {
+						setTimeout(() => {
+							side = 'top';
+							setAlignment();
+						}, 0);
 					}
 					if (rect.top < viewport.top) {
 						side = 'bottom';
@@ -232,7 +237,7 @@
 			use:focusTrap
 			autofocus
 			use:clickOutside={{
-				excludeElement: !savedMouseEvent ? leftClickTrigger ?? rightClickTrigger : undefined,
+				excludeElement: !savedMouseEvent ? (leftClickTrigger ?? rightClickTrigger) : undefined,
 				handler: () => close()
 			}}
 			bind:clientHeight={contextMenuHeight}
@@ -279,31 +284,31 @@
 		margin-left: 2px;
 	}
 	.context-menu {
-		pointer-events: none;
+		display: flex;
 		z-index: var(--z-blocker);
 		position: fixed;
-		display: flex;
 		flex-direction: column;
 		min-width: 128px;
-		background: var(--clr-bg-2);
+		overflow: hidden;
 		border: 1px solid var(--clr-border-2);
 		border-radius: var(--radius-m);
-		box-shadow: var(--fx-shadow-s);
 		outline: none;
-		overflow: hidden;
+		background: var(--clr-bg-2);
+		box-shadow: var(--fx-shadow-s);
 		animation: fadeIn 0.08s ease-out forwards;
+		pointer-events: none;
 	}
 	@keyframes fadeIn {
 		0% {
-			opacity: 0;
 			transform: translateY(var(--animation-transform-y-shift)) scale(0.9);
+			opacity: 0;
 		}
 		50% {
 			opacity: 1;
 		}
 		100% {
-			opacity: 1;
 			transform: scale(1);
+			opacity: 1;
 			pointer-events: all;
 		}
 	}

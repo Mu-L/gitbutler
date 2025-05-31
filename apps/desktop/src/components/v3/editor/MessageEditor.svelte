@@ -3,12 +3,12 @@
 	import MessageEditorRuler from '$components/v3/editor/MessageEditorRuler.svelte';
 	import CommitSuggestions from '$components/v3/editor/commitSuggestions.svelte';
 	import { showError } from '$lib/notifications/toasts';
+	import { SETTINGS, type Settings } from '$lib/settings/userSettings';
 	import { UiState } from '$lib/state/uiState.svelte';
-	import { getContext } from '@gitbutler/shared/context';
+	import { getContext, getContextStoreBySymbol } from '@gitbutler/shared/context';
 	import { uploadFiles } from '@gitbutler/shared/dom';
 	import { persisted } from '@gitbutler/shared/persisted';
 	import { UploadsService } from '@gitbutler/shared/uploads/uploadsService';
-	import { debouncePromise } from '@gitbutler/shared/utils/misc';
 	import Button from '@gitbutler/ui/Button.svelte';
 	import Checkbox from '@gitbutler/ui/Checkbox.svelte';
 	import EmojiPickerButton from '@gitbutler/ui/EmojiPickerButton.svelte';
@@ -19,8 +19,10 @@
 	} from '@gitbutler/ui/richText/plugins/FileUpload.svelte';
 	import Formatter from '@gitbutler/ui/richText/plugins/Formatter.svelte';
 	import GhostTextPlugin from '@gitbutler/ui/richText/plugins/GhostText.svelte';
+	import HardWrapPlugin from '@gitbutler/ui/richText/plugins/HardWrapPlugin.svelte';
 	import FormattingBar from '@gitbutler/ui/richText/tools/FormattingBar.svelte';
 	import FormattingButton from '@gitbutler/ui/richText/tools/FormattingButton.svelte';
+	import { tick } from 'svelte';
 
 	const ACCEPTED_FILE_TYPES = ['image/*', 'application/*', 'text/*', 'audio/*', 'video/*'];
 
@@ -36,6 +38,7 @@
 		canUseAI: boolean;
 		aiIsLoading: boolean;
 		suggestionsHandler?: CommitSuggestions;
+		testId?: string;
 	}
 
 	let {
@@ -48,7 +51,8 @@
 		onAiButtonClick,
 		canUseAI,
 		aiIsLoading,
-		suggestionsHandler
+		suggestionsHandler,
+		testId
 	}: Props = $props();
 
 	const MIN_RULER_VALUE = 30;
@@ -56,6 +60,7 @@
 
 	const uiState = getContext(UiState);
 	const uploadsService = getContext(UploadsService);
+	const userSettings = getContextStoreBySymbol<Settings>(SETTINGS);
 
 	const useRichText = uiState.global.useRichText;
 	const useRuler = uiState.global.useRuler;
@@ -63,9 +68,7 @@
 	const wrapTextByRuler = uiState.global.wrapTextByRuler;
 
 	const wrapCountValue = $derived(
-		useRuler.current && wrapTextByRuler.current && !useRichText.current
-			? rulerCountValue.current
-			: undefined
+		useRuler.current && !useRichText.current ? rulerCountValue.current : undefined
 	);
 
 	let composer = $state<ReturnType<typeof RichTextEditor>>();
@@ -92,9 +95,12 @@
 		await suggestionsHandler?.onChange(textUpToAnchor, textAfterAnchor);
 	}
 
-	const debouncedHandleChange = debouncePromise(handleChange, 700);
-
 	function handleKeyDown(event: KeyboardEvent | null) {
+		if (event && !event.metaKey && !event.ctrlKey) {
+			// Prevent regular keystrokes from propagating so that we don't
+			// trigger keyboard shortcuts while the user is typing a message.
+			event.stopPropagation();
+		}
 		if (event && onKeyDown?.(event)) {
 			return true;
 		}
@@ -197,10 +203,8 @@
 		close();
 	}}
 >
-	{#snippet children()}
-		Your file will be stored in GitButler’s digital vault, safe and sound. We promise it’s secure,
-		so feel free to share the link however you like 🔐
-	{/snippet}
+	Your file will be stored in GitButler’s digital vault, safe and sound. We promise it’s secure, so
+	feel free to share the link however you like 🔐
 	{#snippet controls(close)}
 		<div class="modal-footer">
 			<label for="dont-show-again" class="modal-footer__checkbox">
@@ -218,6 +222,9 @@
 	style:--lexical-input-client-text-wrap={useRuler.current && !useRichText.current
 		? 'nowrap'
 		: 'normal'}
+	style:--code-block-font={$userSettings.diffFont}
+	style:--code-block-tab-size={$userSettings.tabSize}
+	style:--code-block-ligatures={$userSettings.diffLigatures ? 'common-ligatures' : 'normal'}
 >
 	<div class="editor-header">
 		<div class="editor-tabs">
@@ -241,7 +248,7 @@
 			>
 		</div>
 
-		<FormattingBar bind:formatter />
+		<FormattingBar {formatter} />
 	</div>
 
 	<div
@@ -251,6 +258,7 @@
 		onmouseleave={() => (isEditorHovered = false)}
 	>
 		<div
+			data-testid={testId}
 			role="presentation"
 			class="message-textarea__inner"
 			onclick={() => {
@@ -269,14 +277,14 @@
 						{placeholder}
 						bind:this={composer}
 						markdown={useRichText.current}
-						onError={(e) => showError('Editor error', e)}
+						onError={(e) => console.warn('Editor error', e)}
 						initialText={initialValue}
-						onChange={debouncedHandleChange}
+						onChange={handleChange}
 						onKeyDown={handleKeyDown}
 						onFocus={() => (isEditorFocused = true)}
 						onBlur={() => (isEditorFocused = false)}
 						{disabled}
-						{wrapCountValue}
+						wrapCountValue={useRichText.current ? undefined : wrapCountValue}
 					>
 						{#snippet plugins()}
 							<Formatter bind:this={formatter} />
@@ -285,6 +293,12 @@
 								<GhostTextPlugin
 									bind:this={suggestionsHandler.ghostTextComponent}
 									onSelection={(text) => suggestionsHandler.onAcceptSuggestion(text)}
+								/>
+							{/if}
+							{#if !useRichText.current}
+								<HardWrapPlugin
+									enabled={!useRichText.current && wrapTextByRuler.current}
+									maxLength={wrapCountValue}
 								/>
 							{/if}
 						{/snippet}
@@ -337,42 +351,48 @@
 					disabled={!useRuler.current}
 					activated={wrapTextByRuler.current && useRuler.current}
 					tooltip="Wrap text automatically"
-					onclick={() => {
+					onclick={async () => {
 						wrapTextByRuler.current = !wrapTextByRuler.current;
+						await tick(); // Wait for reactive update.
+						if (wrapTextByRuler.current) {
+							composer?.wrapAll();
+						}
 					}}
 				/>
-				<div class="message-textarea__ruler-input-wrapper" class:disabled={!useRuler.current}>
-					<span class="text-13">Ruler:</span>
-					<input
-						disabled={!useRuler.current}
-						value={rulerCountValue.current}
-						min={MIN_RULER_VALUE}
-						max={MAX_RULER_VALUE}
-						class="text-13 text-input message-textarea__ruler-input"
-						type="number"
-						onfocus={() => (isEditorFocused = true)}
-						onblur={() => {
-							if (rulerCountValue.current < MIN_RULER_VALUE) {
-								console.warn('Ruler value must be greater than 10');
-								rulerCountValue.current = MIN_RULER_VALUE;
-							} else if (rulerCountValue.current > MAX_RULER_VALUE) {
-								rulerCountValue.current = MAX_RULER_VALUE;
-							}
+				{#if useRuler.current}
+					<div class="message-textarea__ruler-input-wrapper" class:disabled={!useRuler.current}>
+						<span class="text-13">Ruler:</span>
+						<input
+							disabled={!useRuler.current}
+							value={rulerCountValue.current}
+							min={MIN_RULER_VALUE}
+							max={MAX_RULER_VALUE}
+							class="text-13 text-input message-textarea__ruler-input"
+							type="number"
+							onfocus={() => (isEditorFocused = true)}
+							onblur={() => {
+								if (rulerCountValue.current < MIN_RULER_VALUE) {
+									console.warn('Ruler value must be greater than 10');
+									rulerCountValue.current = MIN_RULER_VALUE;
+								} else if (rulerCountValue.current > MAX_RULER_VALUE) {
+									rulerCountValue.current = MAX_RULER_VALUE;
+								}
 
-							isEditorFocused = false;
-						}}
-						oninput={(e) => {
-							const input = e.currentTarget as HTMLInputElement;
-							rulerCountValue.current = parseInt(input.value);
-						}}
-						onkeydown={(e) => {
-							if (e.key === 'Enter') {
-								e.preventDefault();
-								composer?.focus();
-							}
-						}}
-					/>
-				</div>
+								isEditorFocused = false;
+							}}
+							oninput={(e) => {
+								const input = e.currentTarget as HTMLInputElement;
+								rulerCountValue.current = parseInt(input.value);
+							}}
+							onkeydown={(e) => {
+								if (e.key === 'Enter') {
+									e.preventDefault();
+									composer?.focus();
+								}
+							}}
+						/>
+					</div>
+				{/if}
 			{/if}
 		</div>
 	</div>
@@ -381,53 +401,53 @@
 <style lang="postcss">
 	.editor-wrapper {
 		display: flex;
-		flex-direction: column;
 		flex: 1;
-		background-color: var(--clr-bg-1);
-		overflow: auto;
+		flex-direction: column;
 		min-height: 0;
+		overflow: auto;
+		background-color: var(--clr-bg-1);
 	}
 
 	.editor-header {
-		position: relative;
 		display: flex;
+		position: relative;
 		align-items: center;
 		justify-content: space-between;
 	}
 
 	.editor-tabs {
+		display: flex;
 		z-index: var(--z-ground);
 		position: relative;
-		display: flex;
 	}
 
 	.editor-tab {
 		position: relative;
-		color: var(--clr-text-2);
 		padding: 10px;
-		background-color: var(--clr-bg-1-muted);
 		border: 1px solid transparent;
 		border-bottom: none;
 		border-radius: var(--radius-m) var(--radius-m) 0 0;
+		background-color: var(--clr-bg-1-muted);
+		color: var(--clr-text-2);
 		transition:
 			color var(--transition-fast),
 			border-color var(--transition-fast),
 			background-color var(--transition-fast);
 
 		&.active {
-			color: var(--clr-text-1);
-			background-color: var(--clr-bg-1);
 			border-color: var(--clr-border-2);
+			background-color: var(--clr-bg-1);
+			color: var(--clr-text-1);
 
 			&:after {
-				content: '';
 				position: absolute;
 				bottom: 0;
 				left: 0;
 				width: 100%;
 				height: 1px;
-				background-color: var(--clr-border-3);
 				transform: translateY(100%);
+				background-color: var(--clr-border-3);
+				content: '';
 			}
 		}
 
@@ -442,14 +462,14 @@
 
 	/* MESSAGE INPUT */
 	.message-textarea {
-		position: relative;
 		display: flex;
-		flex-direction: column;
+		position: relative;
 		flex: 1;
-		border-radius: 0 var(--radius-m) var(--radius-m) var(--radius-m);
-		border: 1px solid var(--clr-border-2);
-		overflow: hidden;
+		flex-direction: column;
 		min-height: 0;
+		overflow: hidden;
+		border: 1px solid var(--clr-border-2);
+		border-radius: 0 var(--radius-m) var(--radius-m) var(--radius-m);
 		transition: border-color var(--transition-fast);
 
 		&:hover,
@@ -459,23 +479,23 @@
 	}
 
 	.message-textarea__toolbar {
-		flex: 0 0 auto;
-		position: relative;
 		display: flex;
+		position: relative;
+		flex: 0 0 auto;
 		align-items: center;
 		justify-content: flex-start;
-		gap: 6px;
-		padding: 0 12px;
 		height: var(--lexical-input-client-toolbar-height);
+		padding: 0 12px;
+		gap: 6px;
 
 		&:after {
-			content: '';
 			position: absolute;
 			top: 0;
 			left: 12px;
 			width: calc(100% - 24px);
 			height: 1px;
 			background-color: var(--clr-border-3);
+			content: '';
 		}
 	}
 
@@ -489,18 +509,18 @@
 	.message-textarea__ruler-input-wrapper {
 		display: flex;
 		align-items: center;
-		gap: 5px;
 		padding: 0 4px;
+		gap: 5px;
 
 		&.disabled {
-			pointer-events: none;
 			opacity: 0.5;
+			pointer-events: none;
 		}
 	}
 
 	.message-textarea__ruler-input {
-		padding: 2px 0;
 		width: 30px;
+		padding: 2px 0;
 		text-align: center;
 
 		/* remove numver arrows */
@@ -512,18 +532,17 @@
 	}
 
 	/*  */
-
 	.message-textarea__inner {
-		flex: 1;
 		display: flex;
+		flex: 1;
 		flex-direction: column;
-		overflow: hidden;
 		min-height: 0;
+		overflow: hidden;
 	}
 
 	.message-textarea__wrapper {
-		flex: 1;
 		display: flex;
+		flex: 1;
 		flex-direction: column;
 		min-height: 0;
 	}
@@ -536,8 +555,8 @@
 	}
 
 	.modal-footer__checkbox {
-		flex: 1;
 		display: flex;
+		flex: 1;
 		align-items: center;
 		gap: 8px;
 	}

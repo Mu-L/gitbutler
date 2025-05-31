@@ -1,80 +1,84 @@
 <script lang="ts">
-	import CommitSuggestionsPlugin from '$components/v3/editor/CommitSuggestionsPlugin.svelte';
 	import EditorFooter from '$components/v3/editor/EditorFooter.svelte';
 	import MessageEditor from '$components/v3/editor/MessageEditor.svelte';
 	import MessageEditorInput from '$components/v3/editor/MessageEditorInput.svelte';
 	import CommitSuggestions from '$components/v3/editor/commitSuggestions.svelte';
+	import DiffInputContext, { type DiffInputContextArgs } from '$lib/ai/diffInputContext.svelte';
+	import AIMacros from '$lib/ai/macros.svelte';
 	import { PromptService } from '$lib/ai/promptService';
 	import { AIService } from '$lib/ai/service';
 	import { projectAiGenEnabled } from '$lib/config/config';
+	import { DiffService } from '$lib/hunks/diffService.svelte';
+	import { ChangeSelectionService } from '$lib/selection/changeSelection.svelte';
+	import { StackService } from '$lib/stacks/stackService.svelte';
 	import { UiState } from '$lib/state/uiState.svelte';
+	import { TestId } from '$lib/testing/testIds';
 	import { splitMessage } from '$lib/utils/commitMessage';
+	import { WorktreeService } from '$lib/worktree/worktreeService.svelte';
 	import { getContext } from '@gitbutler/shared/context';
 	import Button from '@gitbutler/ui/Button.svelte';
-	import { isDefined } from '@gitbutler/ui/utils/typeguards';
 	import { tick } from 'svelte';
 
 	type Props = {
-		existingCommitId?: string;
 		projectId: string;
 		stackId?: string;
 		actionLabel: string;
-		action: () => void;
-		onCancel: () => void;
+		action: (args: { title: string; description: string }) => void;
+		onChange?: (args: { title?: string; description?: string }) => void;
+		onCancel: (args: { title: string; description: string }) => void;
 		disabledAction?: boolean;
 		loading?: boolean;
-		initialTitle?: string;
-		initialMessage?: string;
+		existingCommitId?: string;
+		title: string;
+		description: string;
 	};
 
-	const {
-		existingCommitId,
+	let {
 		projectId,
 		stackId,
 		actionLabel,
 		action,
+		onChange,
 		onCancel,
 		disabledAction,
 		loading,
-		initialTitle,
-		initialMessage
+		title,
+		description,
+		existingCommitId
 	}: Props = $props();
 
 	const uiState = getContext(UiState);
 	const aiService = getContext(AIService);
 	const promptService = getContext(PromptService);
 
+	const worktreeService = getContext(WorktreeService);
+	const diffService = getContext(DiffService);
+	const changeSelection = getContext(ChangeSelectionService);
+	const stackService = getContext(StackService);
+
+	const selectedFiles = $derived(changeSelection.list().current);
+
 	const stackState = $derived(stackId ? uiState.stack(stackId) : undefined);
-	const projectState = $derived(uiState.project(projectId));
-	const titleText = $derived(projectState.commitTitle);
-	const descriptionText = $derived(projectState.commitDescription);
 	const stackSelection = $derived(stackState?.selection);
 
-	// const useRichText = uiState.global.useRichText;
-
 	const suggestionsHandler = new CommitSuggestions(aiService, uiState);
-	let commitSuggestionsPlugin = $state<ReturnType<typeof CommitSuggestionsPlugin>>();
+	const diffInputArgs = $derived<DiffInputContextArgs>(
+		existingCommitId
+			? { type: 'commit', projectId, commitId: existingCommitId }
+			: { type: 'change-selection', projectId, selectedFiles }
+	);
+	const diffInputContext = $derived(
+		new DiffInputContext(worktreeService, diffService, stackService, diffInputArgs)
+	);
+	const aiMacros = $derived(new AIMacros(projectId, aiService, promptService, diffInputContext));
 
 	// AI things
-	const aiGenEnabled = projectAiGenEnabled(projectId);
-	let aiConfigurationValid = $state(false);
-	const canUseAI = $derived($aiGenEnabled && aiConfigurationValid);
+	const aiGenEnabled = $derived(projectAiGenEnabled(projectId));
 	let aiIsLoading = $state(false);
+	const canUseAI = $derived(aiMacros.canUseAI);
 
 	$effect(() => {
-		aiService.validateConfiguration().then((valid) => {
-			aiConfigurationValid = valid;
-		});
-	});
-
-	$effect(() => {
-		if (isDefined(initialTitle)) {
-			titleText.current = initialTitle;
-		}
-
-		if (isDefined(initialMessage)) {
-			descriptionText.current = initialMessage;
-		}
+		aiMacros.setGenAIEnabled($aiGenEnabled);
 	});
 
 	let generatedText = $state<string>('');
@@ -82,35 +86,27 @@
 	$effect(() => {
 		if (generatedText) {
 			const { title, description } = splitMessage(generatedText);
-			titleText.set(title);
-			descriptionText.set(description);
+			if (titleInput) titleInput.value = title;
 			composer?.setText(description);
 		}
 	});
 
 	function beginGeneration() {
-		titleText.set('');
-		descriptionText.set('');
+		if (titleInput) titleInput.value = '';
+		composer?.setText('');
 		generatedText = '';
 	}
 
 	async function onAiButtonClick() {
-		if (aiIsLoading || !commitSuggestionsPlugin) return;
+		if (aiIsLoading) return;
 
 		suggestionsHandler.clear();
 		aiIsLoading = true;
 		await tick();
 		try {
-			const prompt = promptService.selectedCommitPrompt(projectId);
-			const diffInput = commitSuggestionsPlugin.getDiffInput();
-
 			let firstToken = true;
 
-			const output = await aiService.summarizeCommit({
-				diffInput,
-				useEmojiStyle: false,
-				useBriefStyle: false,
-				commitTemplate: prompt,
+			const output = await aiMacros.generateCommitMessage({
 				branchName: stackSelection?.current?.branchName,
 				onToken: (t) => {
 					if (firstToken) {
@@ -133,56 +129,57 @@
 	let composer = $state<ReturnType<typeof MessageEditor>>();
 	let titleInput = $state<HTMLInputElement>();
 
-	export function getMessage() {
-		if (descriptionText.current) {
-			return titleText.current + '\n\n' + descriptionText.current;
-		}
-		return titleText.current;
+	function getTitle() {
+		return titleInput?.value || '';
+	}
+
+	async function getDescription() {
+		return (await composer?.getPlaintext()) || '';
+	}
+
+	async function emitAction() {
+		const newTitle = getTitle();
+		const newDescription = await getDescription();
+		action({ title: newTitle, description: newDescription });
+	}
+
+	async function handleCancel() {
+		const newTitle = getTitle();
+		const newDescription = await getDescription();
+		onCancel({ title: newTitle, description: newDescription });
 	}
 </script>
 
-<CommitSuggestionsPlugin
-	bind:this={commitSuggestionsPlugin}
-	{projectId}
-	{canUseAI}
-	{suggestionsHandler}
-	{existingCommitId}
-/>
-
 <div class="commit-message-wrap">
 	<MessageEditorInput
+		testId={TestId.CommitDrawerTitleInput}
 		bind:ref={titleInput}
-		value={titleText.current}
-		oninput={(e: Event) => {
-			const input = e.currentTarget as HTMLInputElement;
-			projectState.commitTitle.current = input.value;
-		}}
-		onkeydown={(e: KeyboardEvent) => {
+		value={title}
+		onchange={(value) => onChange?.({ title: value })}
+		onkeydown={async (e: KeyboardEvent) => {
+			if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+				e.preventDefault();
+				emitAction();
+			}
+
 			if (e.key === 'Enter' || e.key === 'Tab') {
 				e.preventDefault();
 				composer?.focus();
-				return;
-			}
-
-			if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-				e.preventDefault();
-				action();
-				return;
 			}
 		}}
 	/>
-
 	<MessageEditor
+		testId={TestId.CommitDrawerDescriptionInput}
 		bind:this={composer}
-		initialValue={descriptionText.current}
-		placeholder={'Your commit message'}
+		initialValue={description}
+		placeholder="Your commit message"
 		{projectId}
 		{onAiButtonClick}
 		{canUseAI}
 		{aiIsLoading}
 		{suggestionsHandler}
 		onChange={(text: string) => {
-			descriptionText.current = text;
+			onChange?.({ description: text });
 		}}
 		enableFileUpload
 		onKeyDown={(e: KeyboardEvent) => {
@@ -194,7 +191,7 @@
 
 			if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
 				e.preventDefault();
-				action();
+				emitAction();
 				return true;
 			}
 
@@ -202,16 +199,21 @@
 		}}
 	/>
 </div>
-<EditorFooter {onCancel}>
-	<Button style="pop" onclick={action} disabled={disabledAction} {loading} width={126}
-		>{actionLabel}</Button
+<EditorFooter onCancel={handleCancel}>
+	<Button
+		testId={TestId.CommitDrawerActionButton}
+		style="pop"
+		onclick={emitAction}
+		disabled={disabledAction}
+		{loading}
+		width={126}>{actionLabel}</Button
 	>
 </EditorFooter>
 
 <style lang="postcss">
 	.commit-message-wrap {
-		flex: 1;
 		display: flex;
+		flex: 1;
 		flex-direction: column;
 		min-height: 0;
 		gap: 10px;

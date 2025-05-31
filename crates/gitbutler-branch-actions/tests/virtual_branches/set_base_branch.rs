@@ -4,8 +4,13 @@ use super::*;
 fn success() {
     let Test { ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 }
 
 mod error {
@@ -21,6 +26,8 @@ mod error {
             gitbutler_branch_actions::set_base_branch(
                 ctx,
                 &RemoteRefname::from_str("refs/remotes/origin/missing").unwrap(),
+                false,
+                ctx.project().exclusive_worktree_access().write_permission(),
             )
             .unwrap_err()
             .to_string(),
@@ -48,12 +55,17 @@ mod go_back_to_workspace {
         gitbutler_branch_actions::set_base_branch(
             ctx,
             &"refs/remotes/origin/master".parse().unwrap(),
+            false,
+            ctx.project().exclusive_worktree_access().write_permission(),
         )
         .unwrap();
 
-        let stack_entry =
-            gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-                .unwrap();
+        let stack_entry = gitbutler_branch_actions::create_virtual_branch(
+            ctx,
+            &BranchCreateRequest::default(),
+            ctx.project().exclusive_worktree_access().write_permission(),
+        )
+        .unwrap();
 
         std::fs::write(repo.path().join("another file.txt"), "content").unwrap();
         gitbutler_branch_actions::create_commit(ctx, stack_entry.id, "one", None).unwrap();
@@ -68,6 +80,8 @@ mod go_back_to_workspace {
         gitbutler_branch_actions::set_base_branch(
             ctx,
             &"refs/remotes/origin/master".parse().unwrap(),
+            false,
+            ctx.project().exclusive_worktree_access().write_permission(),
         )
         .unwrap();
 
@@ -91,6 +105,8 @@ mod go_back_to_workspace {
         gitbutler_branch_actions::set_base_branch(
             ctx,
             &"refs/remotes/origin/master".parse().unwrap(),
+            false,
+            ctx.project().exclusive_worktree_access().write_permission(),
         )
         .unwrap();
 
@@ -105,7 +121,9 @@ mod go_back_to_workspace {
         assert!(matches!(
             gitbutler_branch_actions::set_base_branch(
                 ctx,
-                &"refs/remotes/origin/master".parse().unwrap()
+                &"refs/remotes/origin/master".parse().unwrap(),
+                false,
+                ctx.project().exclusive_worktree_access().write_permission(),
             )
             .unwrap_err()
             .downcast_ref(),
@@ -114,7 +132,7 @@ mod go_back_to_workspace {
     }
 
     #[test]
-    fn from_target_branch_with_uncommited() {
+    fn from_target_branch_with_uncommited_conflicting() {
         let Test { repo, ctx, .. } = &Test::default();
 
         std::fs::write(repo.path().join("file.txt"), "one").unwrap();
@@ -126,6 +144,8 @@ mod go_back_to_workspace {
         gitbutler_branch_actions::set_base_branch(
             ctx,
             &"refs/remotes/origin/master".parse().unwrap(),
+            false,
+            ctx.project().exclusive_worktree_access().write_permission(),
         )
         .unwrap();
 
@@ -134,12 +154,14 @@ mod go_back_to_workspace {
         assert!(branches.is_empty());
 
         repo.checkout_commit(oid_one);
-        std::fs::write(repo.path().join("another file.txt"), "tree").unwrap();
+        std::fs::write(repo.path().join("file.txt"), "tree").unwrap();
 
         assert!(matches!(
             gitbutler_branch_actions::set_base_branch(
                 ctx,
-                &"refs/remotes/origin/master".parse().unwrap()
+                &"refs/remotes/origin/master".parse().unwrap(),
+                false,
+                ctx.project().exclusive_worktree_access().write_permission(),
             )
             .unwrap_err()
             .downcast_ref(),
@@ -160,6 +182,8 @@ mod go_back_to_workspace {
         let base = gitbutler_branch_actions::set_base_branch(
             ctx,
             &"refs/remotes/origin/master".parse().unwrap(),
+            false,
+            ctx.project().exclusive_worktree_access().write_permission(),
         )
         .unwrap();
 
@@ -174,6 +198,8 @@ mod go_back_to_workspace {
         let base_two = gitbutler_branch_actions::set_base_branch(
             ctx,
             &"refs/remotes/origin/master".parse().unwrap(),
+            false,
+            ctx.project().exclusive_worktree_access().write_permission(),
         )
         .unwrap();
 
@@ -196,6 +222,8 @@ mod go_back_to_workspace {
         let base = gitbutler_branch_actions::set_base_branch(
             ctx,
             &"refs/remotes/origin/master".parse().unwrap(),
+            false,
+            ctx.project().exclusive_worktree_access().write_permission(),
         )
         .unwrap();
 
@@ -208,6 +236,8 @@ mod go_back_to_workspace {
         let base_two = gitbutler_branch_actions::set_base_branch(
             ctx,
             &"refs/remotes/origin/master".parse().unwrap(),
+            false,
+            ctx.project().exclusive_worktree_access().write_permission(),
         )
         .unwrap();
 

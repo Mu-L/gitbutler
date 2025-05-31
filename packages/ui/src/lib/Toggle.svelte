@@ -6,9 +6,10 @@
 		value?: string;
 		id?: string;
 		onclick?: (e: MouseEvent) => void;
+		onchange?: (checked: boolean) => void;
 	}
 
-	let { small, disabled, checked = $bindable(), value, id, onclick }: Props = $props();
+	let { small, disabled, checked = $bindable(), value, id, onclick, onchange }: Props = $props();
 </script>
 
 <input
@@ -17,6 +18,7 @@
 		e.stopPropagation();
 		onclick?.(e);
 	}}
+	onchange={(e) => onchange?.(e.currentTarget.checked)}
 	type="checkbox"
 	class="toggle"
 	class:small
@@ -27,19 +29,19 @@
 
 <style lang="postcss">
 	.toggle {
-		flex-shrink: 0;
 		appearance: none;
-		cursor: pointer;
+		position: relative;
+		flex-shrink: 0;
 		width: 26px;
 		height: 16px;
 		border-radius: 16px;
 		background-color: var(--clr-border-2);
+		cursor: pointer;
 		transition:
 			background-color var(--transition-fast),
 			border-color var(--transition-fast),
 			opacity var(--transition-fast),
 			transform var(--transition-fast);
-		position: relative;
 
 		/* not checked */
 		&:hover,
@@ -48,11 +50,11 @@
 		}
 
 		&:disabled {
-			pointer-events: none;
-			opacity: 0.3;
-			cursor: not-allowed;
-			background-color: var(--clr-scale-ntrl-60);
 			border-color: none;
+			background-color: var(--clr-scale-ntrl-60);
+			cursor: not-allowed;
+			opacity: 0.3;
+			pointer-events: none;
 		}
 
 		/* checked */
@@ -64,9 +66,9 @@
 			}
 
 			&:disabled {
-				pointer-events: none;
-				opacity: 0.4;
 				cursor: not-allowed;
+				opacity: 0.4;
+				pointer-events: none;
 			}
 
 			&::after {
@@ -76,7 +78,6 @@
 
 		/* tick element */
 		&::after {
-			content: '';
 			position: absolute;
 			top: 2px;
 			left: 2px;
@@ -84,6 +85,7 @@
 			height: 12px;
 			border-radius: 12px;
 			background-color: var(--clr-core-ntrl-100);
+			content: '';
 			transition:
 				background-color var(--transition-fast),
 				transform var(--transition-medium);

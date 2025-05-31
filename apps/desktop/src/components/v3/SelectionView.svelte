@@ -1,43 +1,36 @@
 <script lang="ts">
 	import ScrollableContainer from '$components/ConfigurableScrollableContainer.svelte';
 	import FileViewPlaceholder from '$components/v3/FileViewPlaceholder.svelte';
-	import IrcChannel from '$components/v3/IrcChannel.svelte';
 	import SelectedChange from '$components/v3/SelectedChange.svelte';
-	import { ircEnabled } from '$lib/config/uiFeatureFlags';
 	import { IdSelection } from '$lib/selection/idSelection.svelte';
-	import { UiState } from '$lib/state/uiState.svelte';
 	import { inject } from '@gitbutler/shared/context';
 	import type { SelectionId } from '$lib/selection/key';
 
 	type Props = {
 		projectId: string;
+		stackId?: string;
 		selectionId?: SelectionId;
+		draggableFiles: boolean;
 	};
 
-	let { projectId, selectionId }: Props = $props();
+	let { projectId, selectionId, stackId, draggableFiles }: Props = $props();
 
-	const [idSelection, uiState] = inject(IdSelection, UiState);
+	const [idSelection] = inject(IdSelection);
 
-	const channel = $derived(uiState.global.channel);
-
-	const selection = $derived(
-		selectionId ? idSelection.values(selectionId) : idSelection.values({ type: 'worktree' })
-	);
+	const selection = $derived(selectionId ? idSelection.values(selectionId) : []);
 </script>
 
 <div class="selection-view">
 	{#if selection.length === 0}
-		{#if $ircEnabled && channel.current}
-			<IrcChannel type="group" channel={channel.current} autojoin />
-		{:else}
-			<FileViewPlaceholder />
-		{/if}
+		<FileViewPlaceholder />
 	{:else}
-		<ScrollableContainer wide>
+		<ScrollableContainer wide zIndex="var(--z-floating)">
 			{#each selection as selectedFile}
 				<SelectedChange
 					{projectId}
+					{stackId}
 					{selectedFile}
+					draggable={draggableFiles}
 					onCloseClick={() => {
 						if (selectionId) {
 							idSelection.remove(selectedFile.path, selectionId);
@@ -53,12 +46,12 @@
 	.selection-view {
 		display: flex;
 		flex-grow: 1;
+		width: 100%;
 		height: 100%;
 		overflow: hidden;
-		background-size: 6px 6px;
-		width: 100%;
+		border: 1px solid var(--clr-border-2);
 
 		border-radius: var(--radius-ml);
-		border: 1px solid var(--clr-border-2);
+		background-size: 6px 6px;
 	}
 </style>

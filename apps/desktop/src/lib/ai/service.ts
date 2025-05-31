@@ -2,6 +2,11 @@ import { AnthropicAIClient } from '$lib/ai/anthropicClient';
 import { ButlerAIClient } from '$lib/ai/butlerClient';
 import { formatStagedChanges } from '$lib/ai/diffFormatting';
 import {
+	LM_STUDIO_DEFAULT_ENDPOINT,
+	LM_STUDIO_DEFAULT_MODEL_NAME,
+	LMStudioClient
+} from '$lib/ai/lmStudioClient';
+import {
 	DEFAULT_OLLAMA_ENDPOINT,
 	DEFAULT_OLLAMA_MODEL_NAME,
 	OllamaClient
@@ -51,7 +56,9 @@ export enum GitAIConfigKey {
 	AnthropicModelName = 'gitbutler.aiAnthropicModelName',
 	DiffLengthLimit = 'gitbutler.diffLengthLimit',
 	OllamaEndpoint = 'gitbutler.aiOllamaEndpoint',
-	OllamaModelName = 'gitbutler.aiOllamaModelName'
+	OllamaModelName = 'gitbutler.aiOllamaModelName',
+	LMStudioEndpoint = 'gitbutler.aiLMStudioEndpoint',
+	LMStudioModelName = 'gitbutler.aiLMStudioModelName'
 }
 
 interface BaseAIServiceOpts {
@@ -67,10 +74,19 @@ interface SummarizeCommitOpts extends BaseAIServiceOpts {
 	branchName?: string;
 }
 
-interface SummarizeBranchOpts extends BaseAIServiceOpts {
+interface SummarizeBranchOptsByHunks extends BaseAIServiceOpts {
+	type: 'hunks';
 	hunks: DiffInput[];
 	branchTemplate?: Prompt;
 }
+
+interface SummarizeBranchOptsByCommitMessages extends BaseAIServiceOpts {
+	type: 'commitMessages';
+	commitMessages: string[];
+	branchTemplate?: Prompt;
+}
+
+type SummarizeBranchOpts = SummarizeBranchOptsByHunks | SummarizeBranchOptsByCommitMessages;
 
 interface SummarizePROpts extends BaseAIServiceOpts {
 	commitMessages: string[];
@@ -189,6 +205,20 @@ export class AIService {
 		);
 	}
 
+	async getLMStudioEndpoint() {
+		return await this.gitConfig.getWithDefault<string>(
+			GitAIConfigKey.LMStudioEndpoint,
+			LM_STUDIO_DEFAULT_ENDPOINT
+		);
+	}
+
+	async getLMStudioModelName() {
+		return await this.gitConfig.getWithDefault<string>(
+			GitAIConfigKey.LMStudioModelName,
+			LM_STUDIO_DEFAULT_MODEL_NAME
+		);
+	}
+
 	async usingGitButlerAPI() {
 		const modelKind = await this.getModelKind();
 		const openAIKeyOption = await this.getOpenAIKeyOption();
@@ -208,6 +238,8 @@ export class AIService {
 		const anthropicKey = await this.getAnthropicKey();
 		const ollamaEndpoint = await this.getOllamaEndpoint();
 		const ollamaModelName = await this.getOllamaModelName();
+		const lmStudioEndpoint = await this.getLMStudioEndpoint();
+		const lmStudioModelName = await this.getLMStudioModelName();
 
 		if (await this.usingGitButlerAPI()) return !!get(this.tokenMemoryService.token);
 
@@ -215,9 +247,14 @@ export class AIService {
 		const anthropicActiveAndKeyProvided = modelKind === ModelKind.Anthropic && !!anthropicKey;
 		const ollamaActiveAndEndpointProvided =
 			modelKind === ModelKind.Ollama && !!ollamaEndpoint && !!ollamaModelName;
+		const lmStudioActiveAndEndpointProvided =
+			modelKind === ModelKind.LMStudio && !!lmStudioEndpoint && !!lmStudioModelName;
 
 		return (
-			openAIActiveAndKeyProvided || anthropicActiveAndKeyProvided || ollamaActiveAndEndpointProvided
+			openAIActiveAndKeyProvided ||
+			anthropicActiveAndKeyProvided ||
+			ollamaActiveAndEndpointProvided ||
+			lmStudioActiveAndEndpointProvided
 		);
 	}
 
@@ -241,6 +278,17 @@ export class AIService {
 			const ollamaEndpoint = await this.getOllamaEndpoint();
 			const ollamaModelName = await this.getOllamaModelName();
 			return new OllamaClient(ollamaEndpoint, ollamaModelName);
+		}
+
+		if (modelKind === ModelKind.LMStudio) {
+			const lmStudioEndpoint = await this.getLMStudioEndpoint();
+			const lmStudioModelName = await this.getLMStudioModelName();
+
+			if (!lmStudioEndpoint) {
+				throw new Error('When using LM Studio, you must provide a valid endpoint');
+			}
+
+			return new LMStudioClient(lmStudioEndpoint, lmStudioModelName);
 		}
 
 		if (modelKind === ModelKind.OpenAI) {
@@ -357,29 +405,31 @@ export class AIService {
 		return message;
 	}
 
-	async summarizeBranch({
-		hunks,
-		branchTemplate,
-		onToken
-	}: SummarizeBranchOpts): Promise<string | undefined> {
+	async summarizeBranch(params: SummarizeBranchOpts): Promise<string | undefined> {
 		const aiClient = await this.buildClient();
 
 		if (!aiClient) return;
 
 		const diffLengthLimit = await this.getDiffLengthLimitConsideringAPI();
-		const defaultedBranchTemplate = branchTemplate || aiClient.defaultBranchTemplate;
+		const defaultedBranchTemplate = params.branchTemplate || aiClient.defaultBranchTemplate;
+		const hunks = params.type === 'hunks' ? params.hunks : [];
+		const commitMessages = params.type === 'commitMessages' ? params.commitMessages : [];
 		const prompt = defaultedBranchTemplate.map((promptMessage) => {
 			if (promptMessage.role !== MessageRole.User) {
 				return promptMessage;
 			}
 
+			const content = promptMessage.content
+				.replaceAll('%{diff}', buildDiff(hunks, diffLengthLimit))
+				.replaceAll('%{commits}', commitMessages.slice().reverse().join('\n<###>\n'));
+
 			return {
 				role: MessageRole.User,
-				content: promptMessage.content.replaceAll('%{diff}', buildDiff(hunks, diffLengthLimit))
+				content
 			};
 		});
 
-		const message = (await aiClient.evaluate(prompt, { onToken })).trim();
+		const message = (await aiClient.evaluate(prompt, { onToken: params.onToken })).trim();
 
 		return message?.replaceAll(' ', '-').replaceAll('\n', '-') ?? '';
 	}

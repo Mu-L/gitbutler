@@ -33,29 +33,29 @@
 						/>
 						<FormattingButton
 							icon="text-strikethrough"
-							activated={formatter?.imports.isStrikethrough}
+							activated={formatter.imports.isStrikethrough}
 							tooltip="Strikethrough"
-							onclick={() => formatter?.format('text-strikethrough')}
+							onclick={() => formatter.format('text-strikethrough')}
 						/>
 					</div>
 					<div class="formatting-bar__group">
 						<FormattingButton
 							icon="text-code"
-							activated={formatter?.imports.isCode}
+							activated={formatter.imports.isCode}
 							tooltip="Code"
-							onclick={() => formatter?.format('text-code')}
+							onclick={() => formatter.format('text-code')}
 						/>
 						<FormattingButton
 							icon="text-quote"
-							activated={formatter?.imports.isQuote}
+							activated={formatter.imports.isQuote}
 							tooltip="Quote"
-							onclick={() => formatter?.format('text-quote')}
+							onclick={() => formatter.format('text-quote')}
 						/>
 						<FormattingButton
 							icon="text-link"
-							activated={formatter?.imports.isLink}
+							activated={formatter.imports.isLink}
 							tooltip="Link"
-							onclick={() => formatter?.format('text-link')}
+							onclick={() => formatter.format('text-link')}
 						/>
 					</div>
 				</div>
@@ -124,17 +124,15 @@
 	}
 
 	.formatting-slides {
-		position: relative;
 		display: flex;
-		overflow: hidden;
+		position: relative;
 		margin-right: 6px;
-		padding-left: 8px;
 		margin-left: -8px;
+		padding-left: 8px;
+		overflow: hidden;
 		/* background-color: antiquewhite; */
 
 		&::after {
-			user-select: none;
-			content: '';
 			position: absolute;
 			top: 0;
 			left: 0;
@@ -145,6 +143,8 @@
 				var(--clr-bg-1) 0%,
 				oklch(from var(--clr-bg-1) l c h / 0) 100%
 			);
+			content: '';
+			user-select: none;
 		}
 	}
 
@@ -164,12 +164,12 @@
 
 		&:not(:last-child) {
 			&::after {
-				content: '';
 				display: block;
 				width: 1px;
 				height: 16px;
-				background-color: var(--clr-border-3);
 				margin: 0 6px;
+				background-color: var(--clr-border-3);
+				content: '';
 			}
 		}
 	}

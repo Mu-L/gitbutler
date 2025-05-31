@@ -154,6 +154,10 @@ pub struct Resolution {
     pub branch_id: StackId,
     pub approach: ResolutionApproach,
     pub delete_integrated_branches: bool,
+    /// A list of references that the application should consider as integrated even if they are not deteced as such.
+    /// This is useful in the case of squash-merging, where GitButler can not detect the integration of branches.
+    /// This signal can be provided either by the user or, even better, based on a status from GitHub.
+    pub force_integrated_branches: Vec<String>,
 }
 
 enum IntegrationResult {
@@ -324,7 +328,7 @@ fn get_stack_status(
         });
     }
 
-    let stack_head = repo.find_commit(stack.head(gix_repo)?.to_git2())?;
+    let stack_head = repo.find_commit(stack.head_oid(gix_repo)?.to_git2())?;
 
     let tree_status;
     if ctx.app_settings().feature_flags.v3 {
@@ -381,7 +385,7 @@ pub fn upstream_integration_statuses(
 
     let heads = stacks_in_workspace
         .iter()
-        .map(|stack| stack.head(&gix_repo))
+        .map(|stack| stack.head_oid(&gix_repo))
         .chain(Some(Ok(new_target.id().to_gix())))
         .collect::<Result<Vec<_>>>()?;
 
@@ -406,6 +410,19 @@ pub fn upstream_integration_statuses(
     let (merge_options_fail_fast, _conflict_kind) =
         gix_repo.merge_options_no_rewrites_fail_fast()?;
 
+    let merge_outcome = gix_repo.merge_trees(
+        merge_base_tree,
+        gix_repo.head()?.peel_to_commit_in_place()?.tree_id()?,
+        target_tree,
+        gix_repo.default_merge_labels(),
+        merge_options_fail_fast.clone(),
+    )?;
+    let committed_conflicts = merge_outcome
+        .conflicts
+        .iter()
+        .filter(|c| c.is_unresolved(TreatAsUnresolved::git()))
+        .collect::<Vec<_>>();
+
     let worktree_conflicts = gix_repo
         .merge_trees(
             merge_base_tree,
@@ -417,6 +434,8 @@ pub fn upstream_integration_statuses(
         .conflicts
         .iter()
         .filter(|c| c.is_unresolved(TreatAsUnresolved::git()))
+        // only include conflicts that are not in the list committed_conflicts
+        .filter(|c| !committed_conflicts.iter().any(|cc| cc.ours == c.ours))
         .map(|c| c.ours.location().into())
         .collect::<Vec<BStringForFrontend>>();
 
@@ -693,7 +712,7 @@ fn compute_resolutions(
                     // then rebase the tree ontop of that. If the tree ends
                     // up conflicted, commit the tree.
                     let target_commit =
-                        repo.find_commit(branch_stack.head(context.gix_repo)?.to_git2())?;
+                        repo.find_commit(branch_stack.head_oid(context.gix_repo)?.to_git2())?;
                     let top_branch = branch_stack.heads.last().context("top branch not found")?;
 
                     // These two go into the merge commit message.
@@ -770,7 +789,12 @@ fn compute_resolutions(
                             } => {
                                 let commit = repo.find_commit(commit_id.to_git2()).ok()?;
                                 let is_integrated = check_commit.is_integrated(&commit).ok()?;
-                                if is_integrated {
+                                let forced = forced_integrated(
+                                    &resolution.force_integrated_branches,
+                                    &branches_before,
+                                    &commit.id().to_gix(),
+                                );
+                                if is_integrated || forced {
                                     None
                                 } else {
                                     Some(s)
@@ -836,6 +860,43 @@ fn compute_resolutions(
         .collect::<Result<Vec<_>>>()?;
 
     Ok(results)
+}
+
+// If the commit is in a bucket (branches_before) where the reference matches any of the
+// resolution.force_integrated_branches then we consider it integrated.
+fn forced_integrated(
+    force_integrated_branches: &[String],
+    branches: &[(Reference, Vec<RebaseStep>)],
+    target_commit_id: &gix::ObjectId,
+) -> bool {
+    force_integrated_branches.iter().any(|ref_name| {
+        // The reference this commit is under (from branches_before)
+        let commit_ref = branches.iter().find_map(|(ref_name, steps)| {
+            steps.iter().find_map(|step| {
+                if let RebaseStep::Pick {
+                    commit_id,
+                    new_message: _,
+                } = step
+                {
+                    if commit_id == target_commit_id {
+                        Some(ref_name.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+        });
+
+        if let Some(commit_ref) = &commit_ref {
+            dbg!(commit_ref);
+            dbg!(&ref_name);
+            &commit_ref.to_string() == ref_name
+        } else {
+            false
+        }
+    })
 }
 
 pub(crate) fn as_buckets(steps: Vec<RebaseStep>) -> Vec<(but_core::Reference, Vec<RebaseStep>)> {

@@ -1,11 +1,13 @@
 use std::{path::PathBuf, sync::Arc};
 
+use crate::Change;
 use anyhow::{Context, Result};
 use but_settings::{AppSettings, AppSettingsWithDiskSync};
 use gitbutler_branch_actions::{internal::StackListResult, VirtualBranches};
 use gitbutler_command_context::CommandContext;
 use gitbutler_diff::DiffByPathMap;
 use gitbutler_error::error::Marker;
+use gitbutler_filemonitor::InternalEvent;
 use gitbutler_operating_modes::{in_open_workspace_mode, operating_mode};
 use gitbutler_oplog::{
     entry::{OperationKind, SnapshotDetails},
@@ -15,8 +17,6 @@ use gitbutler_project::{self as projects, ProjectId};
 use gitbutler_sync::cloud::{push_oplog, push_repo};
 use gitbutler_user as users;
 use tracing::instrument;
-
-use super::{events, Change};
 
 /// A type that contains enough state to make decisions based on changes in the filesystem, which themselves
 /// may trigger [Changes](Change)
@@ -55,21 +55,21 @@ impl Handler {
     #[instrument(skip(self, app_settings), fields(event = %event), err(Debug))]
     pub(super) fn handle(
         &self,
-        event: events::InternalEvent,
+        event: InternalEvent,
         app_settings: AppSettingsWithDiskSync,
     ) -> Result<()> {
         match event {
-            events::InternalEvent::ProjectFilesChange(project_id, paths) => {
-                let ctx = self.open_command_context(project_id, app_settings.get()?.clone())?;
-                self.project_files_change(paths, &ctx)
+            InternalEvent::ProjectFilesChange(project_id, paths) => {
+                let ctx = &mut self.open_command_context(project_id, app_settings.get()?.clone())?;
+                self.project_files_change(paths, ctx)
             }
 
-            events::InternalEvent::GitFilesChange(project_id, paths) => {
-                let ctx = self.open_command_context(project_id, app_settings.get()?.clone())?;
-                self.git_files_change(paths, &ctx)
+            InternalEvent::GitFilesChange(project_id, paths) => {
+                let ctx = &mut self.open_command_context(project_id, app_settings.get()?.clone())?;
+                self.git_files_change(paths, ctx)
                     .context("failed to handle git file change event")
             }
-            events::InternalEvent::GitButlerOplogChange(project_id) => {
+            InternalEvent::GitButlerOplogChange(project_id) => {
                 let ctx = self.open_command_context(project_id, app_settings.get()?.clone())?;
                 self
                 .gitbutler_oplog_change(&ctx)
@@ -78,7 +78,7 @@ impl Handler {
             ,
 
             // This is only produced at the end of mutating Tauri commands to trigger a fresh state being served to the UI.
-            events::InternalEvent::CalculateVirtualBranches(project_id) => {
+            InternalEvent::CalculateVirtualBranches(project_id) => {
                 let ctx = self.open_command_context(project_id, app_settings.get()?.clone())?;
                 self.calculate_virtual_branches(&ctx, None)
                     .context("failed to handle virtual branch event")
@@ -144,12 +144,12 @@ impl Handler {
     }
 
     #[instrument(skip(self, paths, ctx), fields(paths = paths.len()))]
-    fn project_files_change(&self, paths: Vec<PathBuf>, ctx: &CommandContext) -> Result<()> {
+    fn project_files_change(&self, paths: Vec<PathBuf>, ctx: &mut CommandContext) -> Result<()> {
         let worktree_changes = self.emit_uncommited_files(ctx).ok();
 
         if ctx.app_settings().feature_flags.v3 {
             // This is part of the v3 APIs set and in the future this fully replaces the list virtual branches flow
-            let _ = self.emit_worktree_changes(ctx.gix_repo()?, ctx.project().id);
+            let _ = self.emit_worktree_changes(ctx);
         } else if in_open_workspace_mode(ctx) {
             self.maybe_create_snapshot(ctx).ok();
             self.calculate_virtual_branches(ctx, worktree_changes)?;
@@ -158,11 +158,18 @@ impl Handler {
         Ok(())
     }
 
-    fn emit_worktree_changes(&self, repo: gix::Repository, project_id: ProjectId) -> Result<()> {
-        let detailed_changes = but_core::diff::worktree_changes(&repo)?;
+    fn emit_worktree_changes(&self, ctx: &mut CommandContext) -> Result<()> {
+        let detailed_changes = but_core::diff::worktree_changes(&ctx.gix_repo()?)?;
+        let assignments =
+            but_hunk_assignment::assignments(ctx, false, Some(detailed_changes.changes.clone()))
+                .map_err(|err| serde_error::Error::new(&*err));
+        let changes = but_hunk_assignment::WorktreeChanges {
+            worktree_changes: detailed_changes.into(),
+            assignments,
+        };
         let _ = self.emit_app_event(Change::WorktreeChanges {
-            project_id,
-            changes: detailed_changes,
+            project_id: ctx.project().id,
+            changes,
         });
         Ok(())
     }
@@ -196,7 +203,7 @@ impl Handler {
         Ok(())
     }
 
-    pub fn git_files_change(&self, paths: Vec<PathBuf>, ctx: &CommandContext) -> Result<()> {
+    pub fn git_files_change(&self, paths: Vec<PathBuf>, ctx: &mut CommandContext) -> Result<()> {
         for path in paths {
             let Some(file_name) = path.to_str() else {
                 continue;
@@ -210,8 +217,7 @@ impl Handler {
                 }
                 "index" => {
                     if ctx.app_settings().feature_flags.v3 {
-                        let repo = gix::open(ctx.project().path.clone())?;
-                        let _ = self.emit_worktree_changes(repo, ctx.project().id);
+                        let _ = self.emit_worktree_changes(ctx);
                     }
                 }
                 "HEAD" => {

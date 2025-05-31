@@ -263,7 +263,7 @@
 			</CommitCard>
 		{/each}
 
-		<CommitAction type={'LocalOnly'}>
+		<CommitAction type="LocalOnly">
 			{#snippet action()}
 				<div class="local-actions-wrapper">
 					<Button
@@ -358,8 +358,8 @@
 	.header-wrapper {
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
 		margin: 1rem;
+		gap: 16px;
 
 		& ~ .wrapper {
 			border-top: 1px solid var(--clr-border-2);
@@ -404,8 +404,8 @@
 	.modal-content {
 		display: flex;
 		flex-direction: column;
-		gap: 10px;
 		margin-bottom: 20px;
+		gap: 10px;
 
 		&:last-child {
 			margin-bottom: 0;

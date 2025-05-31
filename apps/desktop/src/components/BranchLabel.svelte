@@ -24,10 +24,7 @@
 	}: Props = $props();
 
 	let inputEl: HTMLInputElement | undefined = $state();
-	let editableName = $state(name);
-	$effect(() => {
-		editableName = name;
-	});
+	let editableName = $derived(name);
 	let nameWidth = $state(0);
 	let editableNameWidth = $state(0);
 	const nameWidthPx = $derived(`${Math.max(nameWidth, editableNameWidth)}px`);
@@ -76,17 +73,22 @@
 		e.stopPropagation();
 	}}
 	onclick={(e) => {
+		if (readonly) return;
 		e.stopPropagation();
 		inputEl?.focus();
 		if ($autoSelectBranchNameFeature) {
 			inputEl?.select();
 		}
 	}}
+	onkeypress={(e) => {
+		if (readonly) return;
+		e.stopPropagation();
+	}}
 	onfocus={() => {
 		editableName = name;
 	}}
 	onkeydown={(e) => {
-		if (e.key === 'Enter' || e.key === 'Escape') {
+		if (e.key === 'Enter' || e.key === 'Escape' || e.key === 'Tab') {
 			inputEl?.blur();
 		}
 	}}
@@ -105,27 +107,27 @@
 		border: 1px solid transparent;
 	}
 	.branch-name-measure-el {
-		pointer-events: none;
-		visibility: hidden;
-		border: 2px solid transparent;
-		color: black;
-		position: fixed;
 		display: inline-block;
 		visibility: hidden;
-		white-space: pre;
+		visibility: hidden;
+		position: fixed;
 		width: fit-content;
+		border: 2px solid transparent;
+		color: black;
+		white-space: pre;
+		pointer-events: none;
 	}
 	.branch-name-input {
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		overflow: hidden;
+		width: 100%;
 
 		max-width: 100%;
-		width: 100%;
+		overflow: hidden;
 		border-radius: var(--radius-s);
-		color: var(--clr-text-1);
-		background-color: transparent;
 		outline: none;
+		background-color: transparent;
+		color: var(--clr-text-1);
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		transition:
 			border var(--transition-fast),
 			background-color var(--transition-fast);
@@ -136,9 +138,9 @@
 		}
 
 		&:not([readonly]):not([disabled]):focus {
+			border: 1px solid var(--clr-border-2);
 			outline: none;
 			background-color: var(--clr-bg-1-muted);
-			border: 1px solid var(--clr-border-2);
 		}
 	}
 	.branch-name-input[readonly] {

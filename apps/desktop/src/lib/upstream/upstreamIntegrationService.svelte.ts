@@ -1,3 +1,4 @@
+import { showError } from '$lib/notifications/toasts';
 import { ProjectsService } from '$lib/project/projectsService';
 import { invalidatesList, providesList, ReduxTag } from '$lib/state/tags';
 import { BranchService as CloudBranchService } from '@gitbutler/shared/branches/branchService';
@@ -15,7 +16,6 @@ import type {
 	StackStatusesWithBranchesV3
 } from '$lib/upstream/types';
 import type { LatestBranchLookupService } from '@gitbutler/shared/branches/latestBranchLookupService';
-import type { Reactive } from '@gitbutler/shared/storeUtils';
 
 export class UpstreamIntegrationService {
 	private api: ReturnType<typeof injectEndpoints>;
@@ -31,49 +31,56 @@ export class UpstreamIntegrationService {
 		this.api = injectEndpoints(state.backendApi);
 	}
 
-	upstreamStatuses(
+	async upstreamStatuses(
 		projectId: string,
-		targetCommitOid?: string
-	): Reactive<StackStatusesWithBranchesV3 | undefined> {
-		const stacks = this.stackService.stacks(projectId);
-		const branchStatuses = this.api.endpoints.upstreamIntegrationStatuses.useQuery({
+		targetCommitOid: string | undefined
+	): Promise<StackStatusesWithBranchesV3 | undefined> {
+		const stacks = await this.stackService.fetchStacks(projectId);
+		const branchStatuses = await this.api.endpoints.upstreamIntegrationStatuses.fetch({
 			projectId,
 			targetCommitOid
 		});
 
-		const result = $derived.by(() => {
-			if (!stacks.current.isSuccess || !branchStatuses.current.isSuccess) return;
-			const stackData = stacks.current.data;
-			const branchStatusesData = branchStatuses.current.data;
-			if (branchStatusesData.type === 'upToDate') return branchStatusesData;
-
-			const stackStatusesWithBranches: StackStatusesWithBranchesV3 = {
-				type: 'updatesRequired',
-				subject: branchStatusesData.subject.statuses
-					.map((status) => {
-						const stack = stackData.find((appliedBranch) => appliedBranch.id === status[0]);
-
-						if (!stack) return;
-						return {
-							stack,
-							status: status[1]
-						};
-					})
-					.filter(isDefined)
-			};
-
-			return stackStatusesWithBranches;
-		});
-
-		return {
-			get current() {
-				return result;
+		if (!stacks.data || !branchStatuses.data) {
+			if (stacks.isError) {
+				showError('Failed to fetch stacks', stacks.error);
 			}
+			if (branchStatuses.isError) {
+				showError('Failed to fetch upstream integration statuses', branchStatuses.error);
+			}
+			return undefined;
+		}
+
+		const stackData = stacks.data;
+		const branchStatusesData = branchStatuses.data;
+
+		if (branchStatusesData.type === 'upToDate') return branchStatusesData;
+
+		const stackStatusesWithBranches: StackStatusesWithBranchesV3 = {
+			type: 'updatesRequired',
+			worktreeConflicts: branchStatusesData.subject.worktreeConflicts,
+			subject: branchStatusesData.subject.statuses
+				.map((status) => {
+					const stack = stackData.find((appliedBranch) => appliedBranch.id === status[0]);
+
+					if (!stack) return;
+					return {
+						stack,
+						status: status[1]
+					};
+				})
+				.filter(isDefined)
 		};
+
+		return stackStatusesWithBranches;
 	}
 
 	resolveUpstreamIntegration() {
 		return this.api.endpoints.resolveUpstreamIntegration.useMutation();
+	}
+
+	get resolveUpstreamIntegrationMutation() {
+		return this.api.endpoints.resolveUpstreamIntegration.mutate;
 	}
 
 	integrateUpstream(projectId: string) {
@@ -109,7 +116,7 @@ function injectEndpoints(api: ClientState['backendApi']) {
 				{ projectId: string; targetCommitOid?: string }
 			>({
 				query: ({ projectId, targetCommitOid }) => ({
-					command: `upstream_integration_statuses`,
+					command: 'upstream_integration_statuses',
 					params: { projectId, targetCommitOid }
 				}),
 				providesTags: [providesList(ReduxTag.UpstreamIntegrationStatus)]
@@ -123,8 +130,9 @@ function injectEndpoints(api: ClientState['backendApi']) {
 				}
 			>({
 				query: ({ projectId, resolutions, baseBranchResolution }) => ({
-					command: `integrate_upstream`,
-					params: { projectId, resolutions, baseBranchResolution }
+					command: 'integrate_upstream',
+					params: { projectId, resolutions, baseBranchResolution },
+					actionName: 'Integrate Upstream'
 				}),
 				invalidatesTags: [
 					invalidatesList(ReduxTag.UpstreamIntegrationStatus),
@@ -138,7 +146,8 @@ function injectEndpoints(api: ClientState['backendApi']) {
 			>({
 				query: ({ projectId, resolutionApproach }) => ({
 					command: `resolve_upstream_integration`,
-					params: { projectId, resolutionApproach }
+					params: { projectId, resolutionApproach },
+					actionName: 'Resolve Integrate Upstream'
 				}),
 				invalidatesTags: [invalidatesList(ReduxTag.UpstreamIntegrationStatus)]
 			})

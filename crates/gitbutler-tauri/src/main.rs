@@ -15,9 +15,9 @@ use but_settings::AppSettingsWithDiskSync;
 use gitbutler_tauri::csp::csp_with_extras;
 use gitbutler_tauri::settings::SettingsStore;
 use gitbutler_tauri::{
-    askpass, commands, config, diff, env, forge, github, logs, menu, modes, open, projects,
-    remotes, repo, secret, settings, stack, undo, users, virtual_branches, workspace, zip, App,
-    WindowState,
+    action, askpass, cli, commands, config, diff, env, forge, github, logs, menu, modes, open,
+    projects, remotes, repo, secret, settings, stack, undo, users, virtual_branches, workspace,
+    zip, App, WindowState,
 };
 use tauri::Emitter;
 use tauri::{generate_context, Manager};
@@ -43,6 +43,7 @@ fn main() {
     ) {
         tauri_context.config_mut().app.security.csp = updated_csp;
     };
+    let settings_for_menu = app_settings.clone();
 
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -75,6 +76,8 @@ fn main() {
                     let app_handle = tauri_app.handle();
 
                     logs::init(app_handle, performance_logging);
+
+                    inherit_interactive_login_shell_environment_if_not_launched_from_terminal();
 
                     tracing::info!(
                         "system git executable for fetch/push: {git:?}",
@@ -208,6 +211,7 @@ fn main() {
                     repo::commands::get_commit_file,
                     repo::commands::get_workspace_file,
                     repo::commands::pre_commit_hook,
+                    repo::commands::pre_commit_hook_diffspecs,
                     repo::commands::post_commit_hook,
                     repo::commands::message_hook,
                     virtual_branches::commands::list_virtual_branches,
@@ -279,8 +283,13 @@ fn main() {
                     settings::update_onboarding_complete,
                     settings::update_telemetry,
                     settings::update_feature_flags,
+                    action::list_actions,
+                    action::handle_changes,
+                    cli::install_cli,
+                    cli::cli_path,
                     workspace::stacks,
                     workspace::stack_details,
+                    workspace::branch_details,
                     workspace::hunk_dependencies_for_workspace_changes,
                     workspace::create_commit_from_worktree_changes,
                     workspace::amend_commit_from_worktree_changes,
@@ -288,15 +297,18 @@ fn main() {
                     workspace::stash_into_branch,
                     workspace::canned_branch_name,
                     workspace::target_commits,
+                    workspace::move_changes_between_commits,
+                    workspace::uncommit_changes,
                     diff::changes_in_worktree,
-                    diff::changes_in_commit,
+                    diff::commit_details,
                     diff::changes_in_branch,
                     diff::tree_change_diffs,
+                    diff::assign_hunk,
                     // `env_vars` is only supposed to be avaialble in debug mode, not in production.
                     #[cfg(debug_assertions)]
                     env::env_vars,
                 ])
-                .menu(menu::build)
+                .menu(move |handle| menu::build(handle, &settings_for_menu))
                 .on_window_event(|window, event| match event {
                     #[cfg(target_os = "macos")]
                     tauri::WindowEvent::CloseRequested { .. } => {
@@ -332,4 +344,27 @@ fn main() {
                     let _ = (app_handle, event);
                 });
         });
+}
+
+/// Launch a shell as interactive login shell, similar to what a login terminal would do if we are not already in a terminal.
+///
+/// That way, each process launched by the backend will act similar to what users would get in their terminal,
+/// something vital to act more similar to Git, which is also launched from an interactive shell most of the time.
+fn inherit_interactive_login_shell_environment_if_not_launched_from_terminal() {
+    if std::env::var_os("TERM").is_some() {
+        tracing::info!(
+            "TERM is set - assuming the app is run from a terminal with suitable environment variables"
+        );
+        return;
+    }
+    if let Some(terminal_vars) = but_core::cmd::extract_interactive_login_shell_environment() {
+        tracing::info!("Inheriting static interactive shell environment, valid for the entire runtime of the application");
+        for (key, value) in terminal_vars {
+            std::env::set_var(key, value);
+        }
+    } else {
+        tracing::info!(
+            "SHELL variable isn't set - launching with default GUI application environment "
+        );
+    }
 }

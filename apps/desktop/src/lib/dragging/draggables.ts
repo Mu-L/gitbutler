@@ -4,7 +4,7 @@ import type { AnyCommit } from '$lib/commits/commit';
 import type { CommitDropData } from '$lib/commits/dropHandler';
 import type { AnyFile } from '$lib/files/file';
 import type { TreeChange } from '$lib/hunks/change';
-import type { Hunk, HunkLock } from '$lib/hunks/hunk';
+import type { Hunk, HunkHeader, HunkLock } from '$lib/hunks/hunk';
 import type { IdSelection } from '$lib/selection/idSelection.svelte';
 
 export const NON_DRAGGABLE = {
@@ -24,6 +24,16 @@ export class HunkDropData {
 	}
 }
 
+export class HunkDropDataV3 {
+	constructor(
+		readonly change: TreeChange,
+		readonly hunk: HunkHeader,
+		readonly uncommitted: boolean,
+		readonly stackId: string | undefined,
+		readonly commitId: string | undefined
+	) {}
+}
+
 export class ChangeDropData {
 	constructor(
 		readonly change: TreeChange,
@@ -35,7 +45,9 @@ export class ChangeDropData {
 		 * dragged.
 		 */
 		private selection: IdSelection,
-		readonly selectionId: SelectionId
+		private allChanges: TreeChange[],
+		readonly selectionId: SelectionId,
+		readonly stackId?: string
 	) {}
 
 	changedPaths(params: SelectionId): string[] {
@@ -53,6 +65,11 @@ export class ChangeDropData {
 		} else {
 			return [this.change.path];
 		}
+	}
+
+	get changes(): TreeChange[] {
+		const paths = this.filePaths;
+		return this.allChanges.filter((change) => paths.includes(change.path));
 	}
 
 	get isCommitted(): boolean {
@@ -89,4 +106,9 @@ export class FileDropData {
 	}
 }
 
-export type DropData = FileDropData | HunkDropData | CommitDropData | ChangeDropData;
+export type DropData =
+	| FileDropData
+	| HunkDropData
+	| CommitDropData
+	| ChangeDropData
+	| HunkDropDataV3;

@@ -1,12 +1,12 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import { UserService } from '$lib/user/userService';
 	import { getContext } from '@gitbutler/shared/context';
 	import { OrganizationService } from '@gitbutler/shared/organizations/organizationService';
 	import { WebRoutesService } from '@gitbutler/shared/routing/webRoutes.svelte';
 	import Button from '@gitbutler/ui/Button.svelte';
-	import { browser } from '$app/environment';
-	import { goto } from '$app/navigation';
-	import { page } from '$app/stores';
 	import { env } from '$env/dynamic/public';
 
 	const userService = getContext(UserService);
@@ -22,17 +22,13 @@
 	const routes = getContext(WebRoutesService);
 
 	// Track the auth and join status
-	let isLoggedIn = $state(false);
+	const isLoggedIn = $derived(!!$user?.id);
 	let isJoining = $state(false);
 	let joinError = $state<string | null>(null);
 	let joinSuccess = $state(false);
 	let showConfirmation = $state(false);
 
 	// Check auth status and respond accordingly
-	$effect(() => {
-		isLoggedIn = !!$user?.id;
-	});
-
 	// Process the invite when authenticated
 	async function processInvite() {
 		if (!isLoggedIn) return;
@@ -134,19 +130,19 @@
 <style>
 	.invite-container {
 		display: flex;
-		justify-content: center;
 		align-items: center;
+		justify-content: center;
 		min-height: 70vh;
 		padding: 2rem;
 	}
 
 	.invite-card {
-		background-color: var(--color-bg-card);
-		border-radius: 0.5rem;
-		padding: 2rem;
-		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-		max-width: 500px;
 		width: 100%;
+		max-width: 500px;
+		padding: 2rem;
+		border-radius: 0.5rem;
+		background-color: var(--color-bg-card);
+		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 		text-align: center;
 	}
 

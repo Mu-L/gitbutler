@@ -17,12 +17,12 @@ pub struct Workspace {
     pub ref_info: RefInfo,
 
     /// An array entry for each parent of the *workspace commit* the last time we saw it.
-    /// The first parent, and always the first parent, could have a tip that is named `Self::target_ref`,
-    /// and if so it's not meant to be visible when asking for stacks.
+    /// The first parent, and always the first parent, could have a tip named `Self::target_ref`,
+    /// and if so, it's not meant to be visible when asking for stacks.
     pub stacks: Vec<WorkspaceStack>,
 
     /// The name of the reference to integrate with, if present.
-    /// Fetch its metadata for more inforamtion.
+    /// Fetch its metadata for more information.
     ///
     /// If there is no target name, this is a local workspace (and if no global target is set).
     /// Note that even though this is per workspace, the implementation can fill in global information at will.
@@ -59,7 +59,7 @@ impl Workspace {
 }
 
 /// Metadata about branches, associated with any Git branch.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Eq, PartialEq, Default)]
 pub struct Branch {
     /// Standard data we want to know about any ref.
     pub ref_info: RefInfo,
@@ -69,16 +69,49 @@ pub struct Branch {
     pub review: Review,
 }
 
+impl std::fmt::Debug for Branch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Branch")
+            .field("ref_info", &self.ref_info)
+            .field("description", &MaybeDebug(&self.description))
+            .field("review", &self.review)
+            .finish()
+    }
+}
+
+struct MaybeDebug<'a, T: std::fmt::Debug>(&'a Option<T>);
+
+impl<T: std::fmt::Debug> std::fmt::Debug for MaybeDebug<'_, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            None => f.write_str("None"),
+            Some(dbg) => dbg.fmt(f),
+        }
+    }
+}
+
 /// Basic information to know about a reference we store with the metadata system.
 ///
-/// It allows to keep track of when it changed, but also if we created it initially, a useful
+/// It allows keeping track of when it changed, but also if we created it initially, a useful
 /// bit of information.
-#[derive(Default, Debug, Clone, PartialEq)]
+#[derive(Default, Clone, Eq, PartialEq)]
 pub struct RefInfo {
     /// The time of creation, *if we created the reference*.
     pub created_at: Option<gix::date::Time>,
-    /// The time at which the reference was last modified, if we modified it.
+    /// The time at which the reference was last modified if we modified it.
     pub updated_at: Option<gix::date::Time>,
+}
+
+impl std::fmt::Debug for RefInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let format = gix::date::time::format::ISO8601;
+        write!(
+            f,
+            "RefInfo {{ created_at: {:?}, updated_at: {:?} }}",
+            MaybeDebug(&self.created_at.map(|date| date.format(format))),
+            MaybeDebug(&self.updated_at.map(|date| date.format(format))),
+        )
+    }
 }
 
 /// Access
@@ -124,15 +157,31 @@ impl WorkspaceStack {
     pub fn ref_name(&self) -> Option<&gix::refs::FullName> {
         self.branches.first().map(|b| &b.ref_name)
     }
+
+    /// The same as [`ref_name()`](Self::ref_name()), but returns an actual `Ref`.
+    pub fn name(&self) -> Option<&gix::refs::FullNameRef> {
+        self.ref_name().map(|rn| rn.as_ref())
+    }
 }
 
 /// Metadata about branches, associated with any Git branch.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, Eq, PartialEq, Default)]
 pub struct Review {
     /// The number for the PR that was associated with this branch.
     pub pull_request: Option<usize>,
     /// A handle to the review created with the GitButler review system.
     pub review_id: Option<String>,
+}
+
+impl std::fmt::Debug for Review {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Review {{ pull_request: {:?}, review_id: {:?} }}",
+            MaybeDebug(&self.pull_request),
+            MaybeDebug(&self.review_id)
+        )
+    }
 }
 
 /// Additional information about the RefMetadata value itself.

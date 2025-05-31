@@ -23,6 +23,10 @@ pub struct GitHubOAuthAppSettings {
 pub struct FeatureFlags {
     /// Enables the v3 design, as well as the purgatory mode (no uncommitted diff ownership assignments).
     pub v3: bool,
+    /// Enable the usage of V3 workspace APIs.
+    pub ws3: bool,
+    /// Enable the usage of GitButler Acitions.
+    pub actions: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -30,4 +34,11 @@ pub struct FeatureFlags {
 pub struct ExtraCsp {
     /// Additional hosts that the application can connect to.
     pub hosts: Vec<String>,
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Fetch {
+    /// The frequency at which the app will automatically fetch. A negative value (e.g. -1) disables auto fetching.
+    pub auto_fetch_interval_minutes: isize,
 }

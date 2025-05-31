@@ -1,6 +1,7 @@
 <script lang="ts">
 	import CanPublishReviewPlugin from '$components/v3/CanPublishReviewPlugin.svelte';
 	import { UiState } from '$lib/state/uiState.svelte';
+	import { TestId } from '$lib/testing/testIds';
 	import { getContext } from '@gitbutler/shared/context';
 	import Button from '@gitbutler/ui/Button.svelte';
 	import type { BranchDetails } from '$lib/stacks/stack';
@@ -10,9 +11,10 @@
 		stackId: string;
 		flex?: string;
 		branches: BranchDetails[];
+		reviewCreationInOpen?: boolean;
 	};
 
-	const { projectId, stackId, flex, branches }: Props = $props();
+	const { projectId, stackId, flex, branches, reviewCreationInOpen }: Props = $props();
 	const uiState = getContext(UiState);
 
 	let canPublishReviewPlugin = $state<ReturnType<typeof CanPublishReviewPlugin>>();
@@ -58,6 +60,8 @@
 	);
 
 	const branchName = $derived(branchToReview?.name);
+	const prNumber = $derived(branchToReview?.prNumber ?? undefined);
+	const reviewId = $derived(branchToReview?.reviewId ?? undefined);
 
 	const canPublishBR = $derived(!!canPublishReviewPlugin?.imports.canPublishBR);
 	const canPublishPR = $derived(!!canPublishReviewPlugin?.imports.canPublishPR);
@@ -72,21 +76,41 @@
 		if (!branchName) return;
 
 		uiState.stack(stackId).selection.set({ branchName });
+		uiState.project(projectId).stackId.set(stackId);
 		uiState.project(projectId).drawerPage.set('review');
 	}
+
+	const tooltip = $derived.by(() => {
+		if (!branchName) {
+			return 'No available branches';
+		}
+
+		if (hasConflicts) {
+			return 'In order to push, please resolve any conflicted commits.';
+		} else {
+			return branches.length > 1 ? `Create for ${branchName}` : undefined;
+		}
+	});
 </script>
 
-<CanPublishReviewPlugin {projectId} {stackId} {branchName} bind:this={canPublishReviewPlugin} />
+<CanPublishReviewPlugin
+	{projectId}
+	{stackId}
+	{branchName}
+	{prNumber}
+	{reviewId}
+	bind:this={canPublishReviewPlugin}
+/>
 
-{#if canPublish}
+{#if canPublish && !branchEmpty}
 	<div class="publish-button" style:flex>
 		<Button
+			testId={TestId.StackPublishButton}
 			style="neutral"
 			wide
-			disabled={!branchName || hasConflicts || branchEmpty}
-			tooltip={hasConflicts
-				? 'In order to push, please resolve any conflicted commits.'
-				: `Create for ${branchName}`}
+			kind={reviewCreationInOpen ? 'outline' : 'solid'}
+			disabled={!branchName || hasConflicts || reviewCreationInOpen}
+			{tooltip}
 			tooltipPosition="top"
 			onclick={publish}
 		>
@@ -97,9 +121,9 @@
 
 <style>
 	.publish-button {
+		flex: 1;
 		/* This is just here so that the disabled button is still opaque */
 		border-radius: var(--radius-m);
 		background-color: var(--clr-bg-1);
-		flex: 1;
 	}
 </style>

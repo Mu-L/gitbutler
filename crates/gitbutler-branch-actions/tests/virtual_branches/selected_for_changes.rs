@@ -6,20 +6,31 @@ use super::*;
 fn unapplying_selected_branch_selects_anther() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     std::fs::write(repo.path().join("file one.txt"), "").unwrap();
 
     // first branch should be created as default
-    let stack_entry_1 =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let stack_entry_1 = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     // if default branch exists, new branch should not be created as default
-    let stack_entry_2 =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let stack_entry_2 = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     let list_result = gitbutler_branch_actions::list_virtual_branches(ctx).unwrap();
     let branches = list_result.branches;
@@ -46,18 +57,29 @@ fn unapplying_selected_branch_selects_anther() {
 fn deleting_selected_branch_selects_anther() {
     let Test { ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     // first branch should be created as default
-    let stack_entry =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let stack_entry = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     // if default branch exists, new branch should not be created as default
-    let stack_entry_2 =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let stack_entry_2 = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     let list_result = gitbutler_branch_actions::list_virtual_branches(ctx).unwrap();
     let branches = list_result.branches;
@@ -83,13 +105,21 @@ fn deleting_selected_branch_selects_anther() {
 fn create_virtual_branch_should_set_selected_for_changes() {
     let Test { ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     // first branch should be created as default
-    let stack_entry =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let stack_entry = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
     let branch = gitbutler_branch_actions::list_virtual_branches(ctx)
         .unwrap()
         .branches
@@ -99,9 +129,12 @@ fn create_virtual_branch_should_set_selected_for_changes() {
     assert!(branch.selected_for_changes);
 
     // if default branch exists, new branch should not be created as default
-    let stack_entry =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let stack_entry = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
     let branch = gitbutler_branch_actions::list_virtual_branches(ctx)
         .unwrap()
         .branches
@@ -117,6 +150,7 @@ fn create_virtual_branch_should_set_selected_for_changes() {
             selected_for_changes: Some(false),
             ..Default::default()
         },
+        ctx.project().exclusive_worktree_access().write_permission(),
     )
     .unwrap();
     let branch = gitbutler_branch_actions::list_virtual_branches(ctx)
@@ -134,6 +168,7 @@ fn create_virtual_branch_should_set_selected_for_changes() {
             selected_for_changes: Some(true),
             ..Default::default()
         },
+        ctx.project().exclusive_worktree_access().write_permission(),
     )
     .unwrap();
     let branch = gitbutler_branch_actions::list_virtual_branches(ctx)
@@ -149,12 +184,20 @@ fn create_virtual_branch_should_set_selected_for_changes() {
 fn update_virtual_branch_should_reset_selected_for_changes() {
     let Test { ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
-    let stack_entry_1 =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let stack_entry_1 = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
     let b1 = gitbutler_branch_actions::list_virtual_branches(ctx)
         .unwrap()
         .branches
@@ -163,9 +206,12 @@ fn update_virtual_branch_should_reset_selected_for_changes() {
         .unwrap();
     assert!(b1.selected_for_changes);
 
-    let stack_entry_2 =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let stack_entry_2 = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
     let b2 = gitbutler_branch_actions::list_virtual_branches(ctx)
         .unwrap()
         .branches
@@ -205,12 +251,20 @@ fn update_virtual_branch_should_reset_selected_for_changes() {
 fn unapply_virtual_branch_should_reset_selected_for_changes() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
-    let stack_entry_1 =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let stack_entry_1 = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
     std::fs::write(repo.path().join("file.txt"), "content").unwrap();
 
     let b1 = gitbutler_branch_actions::list_virtual_branches(ctx)
@@ -221,9 +275,12 @@ fn unapply_virtual_branch_should_reset_selected_for_changes() {
         .unwrap();
     assert!(b1.selected_for_changes);
 
-    let stack_entry_2 =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let stack_entry_2 = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     let b2 = gitbutler_branch_actions::list_virtual_branches(ctx)
         .unwrap()
@@ -246,8 +303,13 @@ fn unapply_virtual_branch_should_reset_selected_for_changes() {
 fn hunks_distribution() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     std::fs::write(repo.path().join("file.txt"), "content").unwrap();
 
@@ -261,6 +323,7 @@ fn hunks_distribution() {
             selected_for_changes: Some(true),
             ..Default::default()
         },
+        ctx.project().exclusive_worktree_access().write_permission(),
     )
     .unwrap();
     std::fs::write(repo.path().join("another_file.txt"), "content").unwrap();
@@ -274,8 +337,13 @@ fn hunks_distribution() {
 fn applying_first_branch() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     std::fs::write(repo.path().join("file.txt"), "content").unwrap();
 
@@ -310,8 +378,13 @@ fn new_locked_hunk_without_modifying_existing() {
     repo.commit_all("first commit");
     repo.push();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     lines[0] = "modification 1".to_string();
     repo.write_file("file.txt", &lines);
@@ -334,6 +407,7 @@ fn new_locked_hunk_without_modifying_existing() {
             selected_for_changes: Some(true),
             ..Default::default()
         },
+        ctx.project().exclusive_worktree_access().write_permission(),
     )
     .unwrap();
 

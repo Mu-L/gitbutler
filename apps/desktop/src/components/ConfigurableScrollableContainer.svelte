@@ -14,6 +14,8 @@
 		shift?: string;
 		thickness?: string;
 		horz?: boolean;
+		autoScroll?: boolean;
+		zIndex?: string;
 		onthumbdrag?: (dragging: boolean) => void;
 		children: Snippet;
 		onscrollTop?: (visible: boolean) => void;
@@ -30,6 +32,8 @@
 		shift,
 		thickness,
 		horz,
+		autoScroll,
+		zIndex,
 		children,
 		onthumbdrag,
 		onscroll,
@@ -40,10 +44,6 @@
 	const userSettings = getContextStoreBySymbol<Settings>(SETTINGS);
 
 	let scroller: ScrollableContainer;
-
-	export function scrollToBottom() {
-		scroller.scrollToBottom();
-	}
 </script>
 
 <ScrollableContainer
@@ -56,6 +56,8 @@
 	{shift}
 	{thickness}
 	{horz}
+	{autoScroll}
+	{zIndex}
 	{onthumbdrag}
 	{onscrollTop}
 	{onscrollEnd}

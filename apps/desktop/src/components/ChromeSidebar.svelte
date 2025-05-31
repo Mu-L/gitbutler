@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import KeyboardShortcutsModal from '$components/KeyboardShortcutsModal.svelte';
 	import ShareIssueModal from '$components/ShareIssueModal.svelte';
 	import { ircEnabled } from '$lib/config/uiFeatureFlags';
@@ -10,11 +11,14 @@
 		isIrcPath,
 		isNewProjectSettingsPath,
 		isWorkspacePath,
+		historyPath,
+		isHistoryPath,
 		newProjectSettingsPath,
 		newSettingsPath,
 		workspacePath
 	} from '$lib/routes/routes.svelte';
 	import { SETTINGS, type Settings } from '$lib/settings/userSettings';
+	import { TestId } from '$lib/testing/testIds';
 	import { User } from '$lib/user/user';
 	import { UserService } from '$lib/user/userService';
 	import { getContextStore } from '@gitbutler/shared/context';
@@ -27,7 +31,6 @@
 	import Icon from '@gitbutler/ui/Icon.svelte';
 	import { slide } from 'svelte/transition';
 	import type { Writable } from 'svelte/store';
-	import { goto } from '$app/navigation';
 
 	const { disabled = false }: { disabled?: boolean } = $props();
 
@@ -50,11 +53,13 @@
 				<div class="active-page-indicator" in:slide={{ axis: 'x', duration: 150 }}></div>
 			{/if}
 			<Button
+				testId={TestId.NavigationWorkspaceButton}
 				kind="outline"
 				onclick={() => goto(workspacePath(project.id))}
 				width={34}
 				class={['btn-square', isWorkspacePath() && 'btn-active']}
 				tooltip="Workspace"
+				{disabled}
 			>
 				<svg viewBox="0 0 16 13" fill="none" xmlns="http://www.w3.org/2000/svg">
 					<path
@@ -76,6 +81,7 @@
 				<div class="active-page-indicator" in:slide={{ axis: 'x', duration: 150 }}></div>
 			{/if}
 			<Button
+				testId={TestId.NavigationBranchesButton}
 				kind="outline"
 				onclick={() => goto(branchesPath(project.id))}
 				width={34}
@@ -123,6 +129,51 @@
 				</svg>
 			</Button>
 		</div>
+		<div>
+			{#if isHistoryPath()}
+				<div class="active-page-indicator" in:slide={{ axis: 'x', duration: 150 }}></div>
+			{/if}
+			<Button
+				kind="outline"
+				onclick={() => goto(historyPath(project.id))}
+				width={34}
+				class={['btn-square', isHistoryPath() && 'btn-active']}
+				tooltip="Operations history"
+				{disabled}
+			>
+				<svg
+					width="18"
+					height="18"
+					viewBox="0 0 18 18"
+					fill="none"
+					xmlns="http://www.w3.org/2000/svg"
+				>
+					{#if !isHistoryPath()}
+						<path
+							d="M7 1H5C2.79086 1 1 2.79086 1 5V13C1 15.2091 2.79086 17 5 17H13C15.2091 17 17 15.2091 17 13V11"
+							stroke-width="1.5"
+						/>
+						<path
+							d="M17 11V5C17 2.79086 15.2091 1 13 1H7"
+							stroke-width="1.5"
+							stroke-dasharray="1.5 1.5"
+						/>
+					{:else}
+						<rect
+							x="1"
+							y="1"
+							width="16"
+							height="16"
+							rx="4"
+							fill="var(--clr-history-bg)"
+							stroke="var(--clr-history-bg)"
+							stroke-width="1.5"
+						/>
+					{/if}
+					<path d="M8 4V10H14" stroke="var(--clr-history-arrows)" stroke-width="1.5" />
+				</svg>
+			</Button>
+		</div>
 		{#if $ircEnabled}
 			<div>
 				{#if isIrcPath()}
@@ -167,7 +218,6 @@
 					contextMenuEl?.toggle();
 				}}
 				bind:el={contextTriggerButton}
-				{disabled}
 			>
 				<div class="user-button">
 					<div class="user-icon">
@@ -201,7 +251,7 @@
 				onclick={() => {
 					keyboardShortcutsModal?.show();
 				}}
-				{disabled}
+				disabled={true}
 			/>
 			<Button
 				icon="mail"
@@ -268,14 +318,16 @@
 			}}
 		/>
 	</ContextMenuSection>
-	<ContextMenuSection>
-		<ContextMenuItem
-			label="Log out"
-			onclick={async () => {
-				await userService.logout();
-			}}
-		/>
-	</ContextMenuSection>
+	{#if $user}
+		<ContextMenuSection>
+			<ContextMenuItem
+				label="Log out"
+				onclick={async () => {
+					await userService.logout();
+				}}
+			/>
+		</ContextMenuSection>
+	{/if}
 </ContextMenu>
 
 <KeyboardShortcutsModal bind:this={keyboardShortcutsModal} />
@@ -317,8 +369,8 @@
 	.user-button {
 		display: flex;
 		flex-direction: column;
-		justify-content: center;
 		align-items: center;
+		justify-content: center;
 		width: 34px;
 		padding: 4px;
 		gap: 4px;
@@ -330,10 +382,10 @@
 		justify-content: center;
 		width: 26px;
 		height: 26px;
+		overflow: hidden;
+		border-radius: var(--radius-m);
 		background-color: var(--clr-core-pop-50);
 		color: var(--clr-core-ntrl-100);
-		border-radius: var(--radius-m);
-		overflow: hidden;
 	}
 
 	.user-icon__image {
@@ -351,14 +403,14 @@
 	}
 
 	.active-page-indicator {
-		content: '';
 		position: absolute;
 		left: 0;
 		width: 12px;
 		height: 18px;
+		transform: translateX(-50%) translateY(50%);
 		border-radius: var(--radius-m);
 		background-color: var(--clr-theme-pop-element);
-		transform: translateX(-50%) translateY(50%);
+		content: '';
 	}
 
 	/* OVERRIDE BUTTON STYLES */
@@ -380,8 +432,8 @@
 	}
 	:global(.sidebar .btn-height-auto) {
 		height: auto;
-		border-radius: var(--radius-ml);
 		padding: 0;
+		border-radius: var(--radius-ml);
 	}
 	:global(.sidebar .btn-square) {
 		aspect-ratio: 1 / 1;

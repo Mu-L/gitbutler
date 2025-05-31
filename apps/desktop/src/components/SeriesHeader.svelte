@@ -100,7 +100,6 @@
 	);
 
 	const stackService = getContext(StackService);
-	const [updateBranchPrNumber, prNumberUpdate] = stackService.updateBranchPrNumber;
 	const [updateBranchNameMutation] = stackService.updateBranchName;
 	const [updateBranchDescription] = stackService.updateBranchDescription;
 
@@ -110,17 +109,17 @@
 	 *
 	 * TODO: Remove this after transition is complete.
 	 */
-	let count = 0;
+	let hasUpdatedPrNumber = false;
 	$effect(() => {
 		if (
 			forge.current.name === 'github' &&
 			!branch.prNumber &&
 			listedPr?.number &&
 			listedPr.number !== branch.prNumber &&
-			prNumberUpdate.current.isUninitialized
+			hasUpdatedPrNumber
 		) {
-			if (count++) return;
-			updateBranchPrNumber({
+			hasUpdatedPrNumber = true;
+			stackService.updateBranchPrNumber({
 				projectId: projectId,
 				stackId: stack.id,
 				branchName: branch.name,
@@ -182,6 +181,7 @@
 
 		const prompt = promptService.selectedBranchPrompt(projectId);
 		const newBranchName = await aiService.summarizeBranch({
+			type: 'hunks',
 			hunks,
 			branchTemplate: prompt
 		});
@@ -198,7 +198,7 @@
 
 	closedStateSync(reactive(() => branch));
 
-	const dzHandler = $derived(new MoveCommitDzHandler(stackService, stack, projectId));
+	const dzHandler = $derived(new MoveCommitDzHandler(stackService, stack.id, projectId));
 
 	let renameBranchModal = $state<BranchRenameModal>();
 	let deleteBranchModal = $state<DeleteBranchModal>();
@@ -340,7 +340,13 @@
 			<div class="branch-review-section">
 				<div class="branch-action__line" style:--bg-color={lineColor}></div>
 				<div class="branch-review-container">
-					<BranchReview {projectId} stackId={stack.id} branchName={branch.name}>
+					<BranchReview
+						{projectId}
+						stackId={stack.id}
+						branchName={branch.name}
+						prNumber={branch.prNumber || undefined}
+						reviewId={branch.reviewId || undefined}
+					>
 						{#snippet branchStatus()}
 							<BranchStatus
 								{mergedIncorrectly}
@@ -368,10 +374,10 @@
 	}
 
 	.branch-header {
-		position: relative;
 		display: flex;
-		align-items: center;
+		position: relative;
 		flex-direction: column;
+		align-items: center;
 
 		&:not(:last-child) {
 			border-bottom: 1px solid var(--clr-border-2);
@@ -386,11 +392,11 @@
 	}
 
 	.branch-info {
+		display: flex;
+		align-items: center;
+		justify-content: flex-start;
 		width: 100%;
 		padding-right: 14px;
-		display: flex;
-		justify-content: flex-start;
-		align-items: center;
 
 		.remote-name {
 			min-width: max-content;
@@ -401,21 +407,21 @@
 
 	.branch-info__name {
 		display: flex;
+		flex-grow: 1;
 		align-items: center;
 		justify-content: flex-start;
 		min-width: 0;
-		flex-grow: 1;
 	}
 
 	.branch-info__content {
-		overflow: hidden;
-		flex: 1;
-		width: 100%;
 		display: flex;
+		flex: 1;
 		flex-direction: column;
-		gap: 6px;
-		padding: 14px 0;
+		width: 100%;
 		margin-left: -2px;
+		padding: 14px 0;
+		overflow: hidden;
+		gap: 6px;
 	}
 
 	.branch-action__line {

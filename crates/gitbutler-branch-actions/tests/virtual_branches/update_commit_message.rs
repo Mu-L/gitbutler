@@ -1,4 +1,4 @@
-use gitbutler_branch::{BranchCreateRequest, BranchUpdateRequest};
+use gitbutler_branch::BranchCreateRequest;
 use gitbutler_commit::commit_ext::CommitExt;
 
 use super::*;
@@ -7,12 +7,20 @@ use super::*;
 fn head() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
-    let stack_entry =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let stack_entry = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     {
         fs::write(repo.path().join("file one.txt"), "").unwrap();
@@ -71,12 +79,20 @@ fn head() {
 fn middle() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
-    let stack_entry =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let stack_entry = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     {
         fs::write(repo.path().join("file one.txt"), "").unwrap();
@@ -132,8 +148,13 @@ fn forcepush_allowed() {
         ..
     } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     projects
         .update(&projects::UpdateRequest {
@@ -142,17 +163,19 @@ fn forcepush_allowed() {
         })
         .unwrap();
 
-    let stack_entry =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let stack_entry = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     let commit_one_oid = {
         fs::write(repo.path().join("file one.txt"), "").unwrap();
         gitbutler_branch_actions::create_commit(ctx, stack_entry.id, "commit one", None).unwrap()
     };
 
-    #[allow(deprecated)]
-    gitbutler_branch_actions::push_virtual_branch(ctx, stack_entry.id, false, None).unwrap();
+    gitbutler_branch_actions::stack::push_stack(ctx, stack_entry.id, false).unwrap();
 
     gitbutler_branch_actions::update_commit_message(
         ctx,
@@ -181,57 +204,23 @@ fn forcepush_allowed() {
 }
 
 #[test]
-fn forcepush_forbidden() {
-    let Test { repo, ctx, .. } = &Test::default();
-
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
-
-    let stack_entry =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
-
-    gitbutler_branch_actions::update_virtual_branch(
-        ctx,
-        BranchUpdateRequest {
-            id: stack_entry.id,
-            allow_rebasing: Some(false),
-            ..Default::default()
-        },
-    )
-    .unwrap();
-
-    let commit_one_oid = {
-        fs::write(repo.path().join("file one.txt"), "").unwrap();
-        gitbutler_branch_actions::create_commit(ctx, stack_entry.id, "commit one", None).unwrap()
-    };
-
-    #[allow(deprecated)]
-    gitbutler_branch_actions::push_virtual_branch(ctx, stack_entry.id, false, None).unwrap();
-
-    assert_eq!(
-        gitbutler_branch_actions::update_commit_message(
-            ctx,
-            stack_entry.id,
-            commit_one_oid,
-            "commit one updated",
-        )
-        .unwrap_err()
-        .to_string(),
-        "force push not allowed"
-    );
-}
-
-#[test]
 fn root() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
-    let branch_id =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let branch_id = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     let commit_one_oid = {
         fs::write(repo.path().join("file one.txt"), "").unwrap();
@@ -280,12 +269,20 @@ fn root() {
 fn empty() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
-    let branch_id =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let branch_id = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     let commit_one_oid = {
         fs::write(repo.path().join("file one.txt"), "").unwrap();

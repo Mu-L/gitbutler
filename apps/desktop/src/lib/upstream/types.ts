@@ -52,6 +52,7 @@ export type StackStatusesWithBranchesV3 =
 	  }
 	| {
 			type: 'updatesRequired';
+			worktreeConflicts: string[];
 			subject: StackStatusInfoV3[];
 	  };
 
@@ -63,6 +64,7 @@ export type Resolution = {
 	branchId: string;
 	approach: ResolutionApproach;
 	deleteIntegratedBranches: boolean;
+	forceIntegratedBranches: string[];
 };
 
 export type BaseBranchResolutionApproach = 'rebase' | 'merge' | 'hardReset';

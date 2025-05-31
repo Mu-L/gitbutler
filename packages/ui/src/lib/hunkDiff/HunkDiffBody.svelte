@@ -4,14 +4,19 @@
 	import { clickOutside } from '$lib/utils/clickOutside';
 	import {
 		type ContentSection,
+		type DependencyLock,
 		generateRows,
 		type LineId,
+		lineIdKey,
+		type LineLock,
 		type LineSelector,
 		parserFromFilename,
 		type Row,
 		SectionType
 	} from '$lib/utils/diffParsing';
+	import { intersectionObserver } from '$lib/utils/intersectionObserver';
 	import type { LineSelectionParams } from '$lib/hunkDiff/lineSelection.svelte';
+	import type { Snippet } from 'svelte';
 
 	interface Props {
 		filePath: string;
@@ -21,6 +26,7 @@
 		diffFont?: string;
 		inlineUnifiedDiffs?: boolean;
 		selectedLines?: LineSelector[];
+		lineLocks?: LineLock[];
 		onLineClick?: (params: LineSelectionParams) => void;
 		clearLineSelection?: () => void;
 		onQuoteSelection?: () => void;
@@ -32,6 +38,7 @@
 		handleLineContextMenu?: (params: ContextMenuParams) => void;
 		clickOutsideExcludeElement?: HTMLElement;
 		comment?: string;
+		lockWarning?: Snippet<[DependencyLock[]]>;
 	}
 
 	const {
@@ -45,6 +52,7 @@
 		tabSize = 4,
 		inlineUnifiedDiffs = false,
 		selectedLines,
+		lineLocks,
 		numberHeaderWidth,
 		onCopySelection,
 		onQuoteSelection,
@@ -52,13 +60,14 @@
 		stagedLines,
 		hideCheckboxes,
 		handleLineContextMenu,
-		clickOutsideExcludeElement
+		clickOutsideExcludeElement,
+		lockWarning
 	}: Props = $props();
 
 	const lineSelection = new LineSelection();
 	const parser = $derived(parserFromFilename(filePath));
 	const renderRows = $derived(
-		generateRows(filePath, content, inlineUnifiedDiffs, parser, selectedLines)
+		generateRows(filePath, content, inlineUnifiedDiffs, parser, selectedLines, lineLocks)
 	);
 	const clickable = $derived(!!onLineClick);
 	const maxLineNumber = $derived.by(() => {
@@ -115,6 +124,7 @@
 
 	const showingExtraColumn = $derived(staged !== undefined && !hideCheckboxes);
 	const commentNumericColSpan = $derived(showingExtraColumn ? 3 : 2);
+
 	const commentRows = $derived.by(() => {
 		if (!comment) return undefined;
 		return generateRows(
@@ -127,38 +137,80 @@
 			],
 			false,
 			parser,
-			[]
+			undefined,
+			undefined
 		);
 	});
 
 	const commentRow = $derived(commentRows?.[0]);
+
+	/* TODO: Move utility function from `apps/desktop` into this UI library. */
+	function chunk<T>(arr: T[], size: number) {
+		return Array.from({ length: Math.ceil(arr.length / size) }, (_v, i) =>
+			arr.slice(i * size, i * size + size)
+		);
+	}
+
+	/* Number of lines grouped together for intersection observer purposes. */
+	const chunkLength = 25;
+	/* The assumed height of a row, used to set height before rows have rendered. */
+	const defaultChunkHeight = 18;
+
+	const { firstRow, restRows } = $derived.by(() => {
+		if (renderRows.length === 0) return { firstRow: undefined, restRows: [] };
+		const [firstRow, ...restRows] = renderRows;
+		return { firstRow, restRows };
+	});
+
+	const chunkedRows = $derived(chunk(restRows, chunkLength));
+
+	/* Bound array of booleans used to control rendering of rows. */
+	let chunkVisibility = $state<boolean[]>([]);
+	/* Bound array of chunk heights, for accurate scrolling. */
+	let chunkHeight = $state<number[]>([]);
+
+	$effect(() => {
+		if (chunkedRows) {
+			chunkVisibility.length = chunkedRows.length;
+			chunkHeight.length = chunkedRows.length;
+		}
+	});
+
+	/**
+	 * Get the index of a row in the full list of rows.
+	 *
+	 * Take into account the the chunk index, the row index within the chunk, and the first row that's rendered separately.
+	 */
+	function getRowIndex(chunkIndex: number, rowIndex: number) {
+		return chunkIndex * chunkLength + rowIndex + 1;
+	}
 </script>
 
-<tbody
-	onmouseenter={() => (hoveringOverTable = true)}
-	onmouseleave={() => (hoveringOverTable = false)}
-	ontouchstart={(ev) => lineSelection.onTouchStart(ev)}
-	ontouchmove={(ev) => lineSelection.onTouchMove(ev)}
-	ontouchend={() => lineSelection.onEnd()}
-	use:clickOutside={{
-		handler: handleClearSelection,
-		excludeElement: clickOutsideExcludeElement
-	}}
->
-	{#if commentRow}
+{#if commentRow}
+	<tbody>
 		<tr>
 			<td class="diff-comment__number-column" colspan={commentNumericColSpan}>comment</td>
 			<td style="--tab-size: {tabSize};" class="diff-comment">
 				{@html commentRow.tokens.join('')}
 			</td>
 		</tr>
-	{/if}
+	</tbody>
+{/if}
 
-	{#each renderRows as row, idx}
+<!-- Render always the first row if there's any. -->
+<!-- This is needed in order for the header dimensions to be calculated correctly -->
+{#if firstRow}
+	<tbody
+		onmouseenter={() => (hoveringOverTable = true)}
+		onmouseleave={() => (hoveringOverTable = false)}
+		ontouchstart={(ev) => lineSelection.onTouchStart(ev)}
+		ontouchmove={(ev) => lineSelection.onTouchMove(ev)}
+		ontouchend={() => lineSelection.onEnd()}
+	>
 		<HunkDiffRow
 			{minWidth}
-			{idx}
-			{row}
+			idx={0}
+			row={firstRow}
 			{clickable}
 			{lineSelection}
 			{tabSize}
@@ -169,12 +221,68 @@
 			{onCopySelection}
 			clearLineSelection={handleClearSelection}
 			{hoveringOverTable}
-			staged={getStageState(row)}
+			staged={getStageState(firstRow)}
 			{hideCheckboxes}
 			{handleLineContextMenu}
+			{lockWarning}
 		/>
-	{/each}
-</tbody>
+	</tbody>
+{/if}
+
+{#each chunkedRows as chunk, chunkIdx}
+	<tbody
+		onmouseenter={() => (hoveringOverTable = true)}
+		onmouseleave={() => (hoveringOverTable = false)}
+		ontouchstart={(ev) => lineSelection.onTouchStart(ev)}
+		ontouchmove={(ev) => lineSelection.onTouchMove(ev)}
+		ontouchend={() => lineSelection.onEnd()}
+		bind:clientHeight={chunkHeight[chunkIdx]}
+		use:clickOutside={{
+			handler: handleClearSelection,
+			excludeElement: clickOutsideExcludeElement
+		}}
+		use:intersectionObserver={{
+			callback: (entries) => {
+				chunkVisibility[chunkIdx] = !!entries?.isIntersecting;
+			},
+			options: { threshold: 0 }
+		}}
+	>
+		{#if chunkVisibility[chunkIdx]}
+			{#each chunk as row, idx (lineIdKey( { oldLine: row.beforeLineNumber, newLine: row.afterLineNumber } ))}
+				{@const rowIdx = getRowIndex(chunkIdx, idx)}
+				<HunkDiffRow
+					{minWidth}
+					idx={rowIdx}
+					{row}
+					{clickable}
+					{lineSelection}
+					{tabSize}
+					{wrapText}
+					{diffFont}
+					{numberHeaderWidth}
+					{onQuoteSelection}
+					{onCopySelection}
+					clearLineSelection={handleClearSelection}
+					{hoveringOverTable}
+					staged={getStageState(row)}
+					{hideCheckboxes}
+					{handleLineContextMenu}
+					{lockWarning}
+				/>
+			{/each}
+		{:else}
+			<tr>
+				<td
+					style:height={chunkHeight[chunkIdx]
+						? chunkHeight[chunkIdx] + 'px'
+						: chunkLength * defaultChunkHeight + 'px'}
+				>
+				</td>
+			</tr>
+		{/if}
+	</tbody>
+{/each}
 
 <style lang="postcss">
 	tbody {
@@ -182,28 +290,28 @@
 	}
 	.diff-comment {
 		width: 100%;
-		font-size: 12px;
 		padding-left: 4px;
-		line-height: 1.25;
-		tab-size: var(--tab-size);
-		white-space: pre;
-		user-select: text;
-		cursor: text;
-		text-wrap: wrap;
 		border-bottom: 1px solid var(--clr-border-2);
 		background-color: var(--clr-diff-count-bg);
+		font-size: 12px;
+		line-height: 1.25;
+		text-wrap: wrap;
+		white-space: pre;
+		cursor: text;
+		tab-size: var(--tab-size);
+		user-select: text;
 	}
 
 	.diff-comment__number-column {
-		color: var(--clr-diff-count-text);
+		padding: 4px 4px;
 		border-right: 1px solid var(--clr-border-2);
 		border-bottom: 1px solid var(--clr-diff-count-border);
 		background-color: var(--clr-diff-count-bg);
+		color: var(--clr-diff-count-text);
 		font-size: 11px;
-		padding: 4px 4px;
 		text-align: right;
 		vertical-align: middle;
-		user-select: none;
 		touch-action: none;
+		user-select: none;
 	}
 </style>

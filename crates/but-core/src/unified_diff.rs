@@ -36,7 +36,11 @@ pub struct DiffHunk {
 
 impl std::fmt::Debug for DiffHunk {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, r#"DiffHunk("{}")"#, self.diff)
+        if f.alternate() {
+            write!(f, r#"DiffHunk("{}")"#, self.diff)
+        } else {
+            write!(f, r#"DiffHunk("{:?}")"#, self.diff)
+        }
     }
 }
 
@@ -169,18 +173,13 @@ impl UnifiedDiff {
                     }
                 }
                 let input = prep.interned_input();
-                let hunks = gix::diff::blob::diff(
-                    algorithm,
+                let uni_diff = gix::diff::blob::UnifiedDiff::new(
                     &input,
-                    gix::diff::blob::UnifiedDiff::new(
-                        &input,
-                        ProduceDiffHunk::default(),
-                        gix::diff::blob::unified_diff::NewlineSeparator::AfterHeaderAndWhenNeeded(
-                            "\n",
-                        ),
-                        ContextSize::symmetrical(context_lines),
-                    ),
-                )?;
+                    ProduceDiffHunk::default(),
+                    gix::diff::blob::unified_diff::NewlineSeparator::AfterHeaderAndWhenNeeded("\n"),
+                    ContextSize::symmetrical(context_lines),
+                );
+                let hunks = gix::diff::blob::diff(algorithm, &input, uni_diff)?;
                 let (lines_added, lines_removed) = compute_line_changes(&hunks);
                 UnifiedDiff::Patch {
                     is_result_of_binary_to_text_conversion: prep.old_or_new_is_derived,

@@ -1,13 +1,15 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import SyncButton from '$components/SyncButton.svelte';
 	import IntegrateUpstreamModal from '$components/v3/IntegrateUpstreamModal.svelte';
 	import BaseBranchService from '$lib/baseBranch/baseBranchService.svelte';
+	import { ircEnabled } from '$lib/config/uiFeatureFlags';
 	import { IrcService } from '$lib/irc/ircService.svelte';
 	import { platformName } from '$lib/platform/platform';
 	import { Project } from '$lib/project/project';
 	import { ProjectsService } from '$lib/project/projectsService';
 	import { ircPath, projectPath } from '$lib/routes/routes.svelte';
-	import * as events from '$lib/utils/events';
+	import { TestId } from '$lib/testing/testIds';
 	import { getContext, maybeGetContext } from '@gitbutler/shared/context';
 	import Button from '@gitbutler/ui/Button.svelte';
 	import Icon from '@gitbutler/ui/Icon.svelte';
@@ -15,7 +17,6 @@
 	import OptionsGroup from '@gitbutler/ui/select/OptionsGroup.svelte';
 	import Select from '@gitbutler/ui/select/Select.svelte';
 	import SelectItem from '@gitbutler/ui/select/SelectItem.svelte';
-	import { goto } from '$app/navigation';
 
 	type Props = {
 		projectId: string;
@@ -36,6 +37,7 @@
 
 	const projects = $derived(projectsService.projects);
 	const upstreamCommits = $derived(base?.behind ?? 0);
+	const isHasUpstreamCommits = $derived(upstreamCommits > 0);
 
 	let modal = $state<ReturnType<typeof IntegrateUpstreamModal>>();
 
@@ -65,10 +67,20 @@
 	<div class="chrome-left" data-tauri-drag-region>
 		<div class="chrome-left-buttons" class:macos={platformName === 'macos'}>
 			<SyncButton {projectId} size="button" disabled={actionsDisabled} />
-			{#if upstreamCommits > 0}
-				<Button style="pop" onclick={openModal} disabled={!selectedProjectId || actionsDisabled}
-					>{upstreamCommits} upstream commits</Button
+			{#if isHasUpstreamCommits}
+				<Button
+					testId={TestId.IntegrateUpstreamCommitsButton}
+					style="pop"
+					onclick={openModal}
+					disabled={!selectedProjectId || actionsDisabled}
 				>
+					{upstreamCommits} upstream commits
+				</Button>
+			{:else}
+				<div class="chrome-you-are-up-to-date">
+					<Icon name="tick-small" />
+					<span class="text-12">You’re up to date</span>
+				</div>
 			{/if}
 		</div>
 	</div>
@@ -131,22 +143,23 @@
 		</Select>
 	</div>
 	<div class="chrome-right" data-tauri-drag-region>
-		<Button kind="ghost" icon="timeline" onclick={() => events.emit('openHistory')} />
-		<NotificationButton
-			hasUnread={isNotificationsUnread}
-			onclick={() => {
-				goto(ircPath(projectId));
-			}}
-		/>
+		{#if $ircEnabled}
+			<NotificationButton
+				hasUnread={isNotificationsUnread}
+				onclick={() => {
+					goto(ircPath(projectId));
+				}}
+			/>
+		{/if}
 	</div>
 </div>
 
 <style>
 	.chrome-header {
 		display: flex;
-		padding: 14px;
 		align-items: center;
 		justify-content: space-between;
+		padding: 14px;
 		overflow: hidden;
 	}
 
@@ -161,19 +174,20 @@
 
 	.chrome-right {
 		display: flex;
-		gap: 4px;
 		justify-content: right;
+		gap: 4px;
 	}
 
 	/** Flex basis 0 means they grow by the same amount. */
 	.chrome-right,
 	.chrome-left {
-		flex-basis: 0;
 		flex-grow: 1;
+		flex-basis: 0;
 	}
 
 	.chrome-left-buttons {
 		display: flex;
+		align-items: center;
 		gap: 8px;
 	}
 
@@ -185,8 +199,8 @@
 	.selector-series-select {
 		display: flex;
 		align-items: center;
-		gap: 4px;
 		padding: 2px 4px 2px 6px;
+		gap: 4px;
 		color: var(--clr-text-1);
 		text-wrap: nowrap;
 
@@ -201,5 +215,13 @@
 		display: flex;
 		color: var(--clr-text-3);
 		transition: opacity var(--transition-fast);
+	}
+
+	.chrome-you-are-up-to-date {
+		display: flex;
+		align-items: center;
+		padding: 0 4px;
+		gap: 4px;
+		color: var(--clr-text-2);
 	}
 </style>

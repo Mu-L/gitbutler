@@ -1,8 +1,11 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import Login from '$components/Login.svelte';
 	import WelcomeSigninAction from '$components/WelcomeSigninAction.svelte';
+	import { invoke } from '$lib/backend/ipc';
 	import { SettingsService } from '$lib/config/appSettingsV2';
 	import { showError } from '$lib/notifications/toasts';
+	import { ProjectsService } from '$lib/project/projectsService';
 	import { UpdaterService } from '$lib/updater/updater';
 	import { UserService } from '$lib/user/userService';
 	import { getContext } from '@gitbutler/shared/context';
@@ -14,10 +17,10 @@
 	import Toggle from '@gitbutler/ui/Toggle.svelte';
 	import * as toasts from '@gitbutler/ui/toasts';
 	import type { User } from '$lib/user/user';
-	import { goto } from '$app/navigation';
 
 	const userService = getContext(UserService);
 	const settingsService = getContext(SettingsService);
+	const projectsService = getContext(ProjectsService);
 	const user = userService.user;
 
 	const updaterService = getContext(UpdaterService);
@@ -40,8 +43,8 @@
 			userService.getUser().then((cloudUser) => {
 				const userData: User = {
 					...cloudUser,
-					name: cloudUser.name || 'unkown',
-					email: cloudUser.email || 'unkown@example.com',
+					name: cloudUser.name || 'unknown',
+					email: cloudUser.email || 'unknown@example.com',
 					login: cloudUser.login || undefined,
 					picture: cloudUser.picture || '#',
 					locale: cloudUser.locale || 'en',
@@ -97,6 +100,8 @@
 		isDeleting = true;
 		try {
 			await settingsService.deleteAllData();
+			await projectsService.reload();
+			projectsService.unsetLastOpenedProject();
 			await userService.logout();
 			// TODO: Delete user from observable!!!
 			toasts.success('All data deleted');
@@ -108,6 +113,16 @@
 			deleteConfirmationModal?.close();
 			isDeleting = false;
 		}
+	}
+
+	async function installCli() {
+		await invoke('install_cli');
+	}
+
+	async function cli_command(): Promise<string> {
+		const path: string = await invoke('cli_path');
+		const command = 'ln -sf ' + path + ' /usr/local/bin/but';
+		return command;
 	}
 </script>
 
@@ -164,6 +179,33 @@
 	{/snippet}
 </SectionCard>
 
+{#if $user && $user.role?.includes('admin')}
+	<SectionCard orientation="row">
+		{#snippet title()}
+			Install the GitButler CLI (but)
+		{/snippet}
+
+		{#snippet caption()}
+			Installs the GitButler CLI (but) in your PATH, allowing you to use it from the terminal. This
+			action will request admin privileges.
+			<br />
+			<br />
+			Alternatively, you could create a symlink manually:
+			<br />
+			<br />
+			{#await cli_command() then command}
+				<span>
+					{command}
+				</span>
+			{/await}
+		{/snippet}
+
+		{#snippet actions()}
+			<Button style="neutral" kind="outline" onclick={() => installCli()}>Install CLI</Button>
+		{/snippet}
+	</SectionCard>
+{/if}
+
 <Spacer />
 
 {#if $user}
@@ -215,11 +257,11 @@
 	}
 
 	.hidden-input {
-		cursor: pointer;
 		z-index: var(--z-ground);
 		position: absolute;
 		width: 100%;
 		height: 100%;
+		cursor: pointer;
 		opacity: 0;
 	}
 
@@ -227,8 +269,8 @@
 		position: relative;
 		width: 100px;
 		height: 100px;
-		border-radius: var(--radius-m);
 		overflow: hidden;
+		border-radius: var(--radius-m);
 		background-color: var(--clr-scale-pop-70);
 		transition: opacity var(--transition-medium);
 
@@ -256,26 +298,26 @@
 		position: absolute;
 		bottom: 8px;
 		left: 8px;
-		color: var(--clr-core-ntrl-100);
-		background-color: var(--clr-scale-ntrl-20);
 		padding: 4px 6px;
 		border-radius: var(--radius-m);
+		background-color: var(--clr-scale-ntrl-20);
+		color: var(--clr-core-ntrl-100);
 		opacity: 0;
 		transition: opacity var(--transition-medium);
 	}
 
 	.contact-info {
-		flex: 1;
 		display: flex;
+		flex: 1;
 		flex-direction: column;
-		gap: 20px;
 		align-items: flex-end;
+		gap: 20px;
 	}
 
 	.contact-info__fields {
-		width: 100%;
 		display: flex;
 		flex-direction: column;
+		width: 100%;
 		gap: 12px;
 	}
 </style>

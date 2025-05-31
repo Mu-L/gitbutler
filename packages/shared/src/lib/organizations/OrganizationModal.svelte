@@ -5,9 +5,9 @@
 	import { OrganizationService } from '$lib/organizations/organizationService';
 	import { getOrganizationBySlug } from '$lib/organizations/organizationsPreview.svelte';
 	import { getProjectByRepositoryId } from '$lib/organizations/projectsPreview.svelte';
+	import { AppState } from '$lib/redux/store.svelte';
 	import { UserService } from '$lib/users/userService';
 	import { getUserByLogin } from '$lib/users/usersPreview.svelte';
-	import { AppState } from '$lib/redux/store.svelte';
 	import Button from '@gitbutler/ui/Button.svelte';
 	import Modal from '@gitbutler/ui/Modal.svelte';
 	import SectionCard from '@gitbutler/ui/SectionCard.svelte';
@@ -102,8 +102,8 @@
 <style lang="postcss">
 	.header-with-action {
 		display: flex;
-		justify-content: space-between;
 		align-items: center;
+		justify-content: space-between;
 
 		margin-bottom: 8px;
 	}

@@ -6,12 +6,20 @@ use super::*;
 fn detect_upstream_commits() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
-    let stack_entry_1 =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let stack_entry_1 = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     let oid1 = {
         // create first commit
@@ -54,12 +62,20 @@ fn detect_upstream_commits() {
 fn detect_integrated_commits() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
-    let stack_entry_1 =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let stack_entry_1 = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     let oid1 = {
         // create first commit
@@ -74,8 +90,7 @@ fn detect_integrated_commits() {
     };
 
     // push
-    #[allow(deprecated)]
-    gitbutler_branch_actions::push_virtual_branch(ctx, stack_entry_1.id, false, None).unwrap();
+    gitbutler_branch_actions::stack::push_stack(ctx, stack_entry_1.id, false).unwrap();
 
     {
         // merge branch upstream
@@ -85,7 +100,19 @@ fn detect_integrated_commits() {
             .into_iter()
             .find(|b| b.id == stack_entry_1.id)
             .unwrap();
-        repo.merge(&branch.upstream.as_ref().unwrap().name).unwrap();
+
+        let name = branch
+            .series
+            .first()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .upstream_reference
+            .as_ref()
+            .unwrap();
+        let refname = Refname::from_str(name).unwrap();
+
+        repo.merge(&refname).unwrap();
         repo.fetch();
     }
 

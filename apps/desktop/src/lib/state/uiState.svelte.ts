@@ -7,6 +7,7 @@ import {
 	type UnknownAction
 } from '@reduxjs/toolkit';
 import storage from 'redux-persist/lib/storage';
+import type { RejectionReason } from '$lib/stacks/stackService.svelte';
 export type DrawerPage = 'branch' | 'new-commit' | 'review' | undefined;
 
 export const uiStatePersistConfig = {
@@ -28,22 +29,43 @@ type BranchesSelection = {
 	branchName?: string;
 	commitId?: string;
 	stackId?: string;
-	prNumber?: string;
+	remote?: string;
+	hasLocal?: boolean;
+	isTarget?: boolean;
+	inWorkspace?: boolean;
+	prNumber?: number;
 };
 
 export type ProjectUiState = {
 	drawerPage: DrawerPage;
 	drawerFullScreen: boolean;
+	stackId: string | undefined;
 	commitTitle: string;
 	commitDescription: string;
 	branchesSelection: BranchesSelection;
+	editingCommitMessage: boolean;
 };
+
+type GlobalModalType = 'commit-failed';
+type BaseGlobalModalState = {
+	type: GlobalModalType;
+};
+
+export type CommitFailedModalState = BaseGlobalModalState & {
+	type: 'commit-failed';
+	projectId: string;
+	targetBranchName: string;
+	newCommitId: string | undefined;
+	commitTitle: string | undefined;
+	pathsToRejectedChanges: Record<string, RejectionReason>;
+};
+
+export type GlobalModalState = CommitFailedModalState;
 
 export type GlobalUiState = {
 	drawerHeight: number;
-	leftWidth: number;
-	stacksViewWidth: number;
 	drawerSplitViewWidth: number;
+	historySidebarWidth: number;
 	useRichText: boolean;
 	useRuler: boolean;
 	rulerCountValue: number;
@@ -52,13 +74,14 @@ export type GlobalUiState = {
 	selectedTip: number | undefined;
 	channel: string | undefined;
 	draftBranchName: string | undefined;
+	modal: GlobalModalState | undefined;
 };
 
 /**
  * Stateful properties for the UI, with redux backed fine-grained reactivity.
  */
 export class UiState {
-	private state = $state<EntityState<UiStateVariable, string>>(uiStateSlice.getInitialState());
+	private state = $state.raw<EntityState<UiStateVariable, string>>(uiStateSlice.getInitialState());
 
 	/** Properties scoped to a specific stack. */
 	readonly stack = this.buildScopedProps<StackState>({
@@ -71,15 +94,16 @@ export class UiState {
 		drawerFullScreen: false,
 		commitTitle: '',
 		commitDescription: '',
-		branchesSelection: {}
+		branchesSelection: {},
+		stackId: undefined,
+		editingCommitMessage: false
 	});
 
 	/** Properties that are globally scoped. */
 	readonly global = this.buildGlobalProps<GlobalUiState>({
 		drawerHeight: 20,
-		leftWidth: 17.5,
-		stacksViewWidth: 21.25,
 		drawerSplitViewWidth: 20,
+		historySidebarWidth: 30,
 		useRichText: false,
 		useRuler: false,
 		rulerCountValue: 72,
@@ -87,7 +111,8 @@ export class UiState {
 		aiSuggestionsOnType: false,
 		selectedTip: undefined,
 		channel: undefined,
-		draftBranchName: undefined
+		draftBranchName: undefined,
+		modal: undefined
 	});
 
 	constructor(
@@ -176,12 +201,7 @@ export const uiStateSlice = createSlice({
 const { upsertOne } = uiStateSlice.actions;
 
 /** Allowed types for property values. */
-type UiStateValue =
-	| string
-	| number
-	| boolean
-	| Record<string, string | number | boolean>
-	| undefined;
+type UiStateValue = string | number | boolean | { [property: string]: UiStateValue } | undefined;
 
 /** Type held by the RTK entity adapter. */
 type UiStateVariable = {

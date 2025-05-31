@@ -1,10 +1,10 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import AccountLink from '$components/AccountLink.svelte';
 	import { ModeService } from '$lib/mode/modeService';
 	import * as events from '$lib/utils/events';
 	import { getContext } from '@gitbutler/shared/context';
 	import Button from '@gitbutler/ui/Button.svelte';
-	import { goto } from '$app/navigation';
 
 	interface Props {
 		projectId: string | undefined;
@@ -71,8 +71,8 @@
 
 	.footer.collapsed {
 		flex-direction: column;
-		padding: 0 14px;
 		align-items: flex-start;
+		padding: 0 14px;
 		gap: 4px;
 		border: none;
 

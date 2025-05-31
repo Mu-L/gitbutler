@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Self from '$components/v3/FileTreeNode.svelte';
 	import TreeListFolder from '$components/v3/TreeListFolder.svelte';
+	import { TestId } from '$lib/testing/testIds';
 	import type { TreeNode } from '$lib/files/filetreeV3';
 	import type { TreeChange } from '$lib/hunks/change';
 	import type { Snippet } from 'svelte';
@@ -11,13 +12,14 @@
 		showCheckboxes?: boolean;
 		changes: TreeChange[];
 		depth?: number;
+		initiallyExpanded?: boolean;
 		fileTemplate: Snippet<[TreeChange, number, number]>;
 	};
 
 	let { node, isRoot = false, showCheckboxes, changes, depth = 0, fileTemplate }: Props = $props();
 
 	// Local state to track whether the folder is expanded
-	let isExpanded = $state(true);
+	let isExpanded = $state<boolean>(true);
 
 	// Handler for toggling the folder
 	function handleToggle() {
@@ -27,13 +29,14 @@
 
 {#if isRoot}
 	<!-- Node is a root and should only render children! -->
-	{#each node.children as childNode}
+	{#each node.children as childNode (childNode.name)}
 		<Self {depth} node={childNode} {showCheckboxes} {changes} {fileTemplate} />
 	{/each}
 {:else if node.kind === 'file'}
 	{@render fileTemplate(node.change, node.index, depth)}
 {:else}
 	<TreeListFolder
+		testId={TestId.FileListTreeFolder}
 		{depth}
 		{isExpanded}
 		showCheckbox={showCheckboxes}
@@ -42,7 +45,7 @@
 	/>
 
 	{#if isExpanded}
-		{#each node.children as childNode}
+		{#each node.children as childNode (childNode.name)}
 			<Self depth={depth + 1} node={childNode} {showCheckboxes} {changes} {fileTemplate} />
 		{/each}
 	{/if}

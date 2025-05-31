@@ -1,4 +1,7 @@
 <script lang="ts">
+	import '$lib/styles/global.css';
+	import { page } from '$app/state';
+	import { ButlerAIClient } from '$lib/ai/service';
 	import { AuthService } from '$lib/auth/authService.svelte';
 	import Footer from '$lib/components/Footer.svelte';
 	import Navigation from '$lib/components/Navigation.svelte';
@@ -19,14 +22,13 @@
 	import { PatchCommitService } from '@gitbutler/shared/patches/patchCommitService';
 	import { PatchIdableService } from '@gitbutler/shared/patches/patchIdableService';
 	import { AppState } from '@gitbutler/shared/redux/store.svelte';
+	import { RulesService } from '@gitbutler/shared/rules/rulesService';
 	import { NotificationSettingsService } from '@gitbutler/shared/settings/notificationSettingsService';
 	import { UploadsService } from '@gitbutler/shared/uploads/uploadsService';
 	import { UserService as NewUserService } from '@gitbutler/shared/users/userService';
 	import { setExternalLinkService } from '@gitbutler/ui/link/externalLinkService';
 	import { setContext, type Snippet } from 'svelte';
 	import { Toaster } from 'svelte-french-toast';
-	import '$lib/styles/global.css';
-	import { page } from '$app/state';
 	import { env } from '$env/dynamic/public';
 
 	const CHAT_NOTFICATION_SOUND = '/sounds/pop.mp3';
@@ -41,6 +43,9 @@
 
 	const httpClient = new HttpClient(window.fetch, env.PUBLIC_APP_HOST, authService.tokenReadable);
 	setContext(HttpClient, httpClient);
+
+	const aiService = new ButlerAIClient(httpClient);
+	setContext(ButlerAIClient, aiService);
 
 	const userService = new UserService(httpClient);
 	setContext(UserService, userService);
@@ -106,6 +111,9 @@
 	const ownerService = new OwnerService(httpClient);
 	setContext(OwnerService, ownerService);
 
+	const rulesService = new RulesService(httpClient, webState.appDispatch);
+	setContext(RulesService, rulesService);
+
 	const isCommitPage = $derived(page.url.pathname.includes('/commit/'));
 </script>
 
@@ -125,14 +133,14 @@
 <style lang="postcss">
 	.app {
 		--layout-side-paddings: 80px;
+		container-type: inline-size;
 
 		display: flex;
 		flex-direction: column;
-		min-height: 100vh;
 		max-width: calc(1440px + var(--layout-side-paddings) * 2);
-		padding: 24px var(--layout-side-paddings);
+		min-height: 100vh;
 		margin: 0 auto;
-		container-type: inline-size;
+		padding: 24px var(--layout-side-paddings);
 
 		@media (--desktop-small-viewport) {
 			--layout-side-paddings: 40px;
@@ -145,10 +153,10 @@
 	}
 
 	main {
-		flex: 1;
 		display: flex;
+		flex: 1;
 		flex-direction: column;
-		margin: 0 auto;
 		width: 100%;
+		margin: 0 auto;
 	}
 </style>

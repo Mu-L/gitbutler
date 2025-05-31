@@ -1,6 +1,7 @@
 import { BaseParamsSchema } from './shared.js';
 import { executeGitButlerCommand, hasGitButlerExecutable } from '../../shared/command.js';
 import { DiffHunk, UnifiedWorktreeChanges } from '../../shared/entities/changes.js';
+import { HunkDependenciesSchema } from '../../shared/entities/dependencies.js';
 import {
 	BranchCommitsSchema,
 	BranchListSchema,
@@ -22,7 +23,7 @@ type WorktreeDiffs = {
 /**
  * Get the file changes of the current GitButler project.
  */
-function status(params: StatusParams) {
+export function status(params: StatusParams) {
 	const args = ['status', '--unified-diff'];
 
 	const unifiedWorktreeChanges = executeGitButlerCommand(
@@ -46,13 +47,44 @@ const ListStacksParamsSchema = BaseParamsSchema.extend({});
 
 type ListStacksParams = z.infer<typeof ListStacksParamsSchema>;
 
+type ExtendedStackHead = {
+	name: string;
+	tip: string;
+	archived: boolean;
+	description: string | null;
+};
+
+type ExtendedStackListing = {
+	id: string;
+	heads: ExtendedStackHead[];
+};
+
 /**
  * Get the list of stacks of the current GitButler project.
  */
-export function listStacks(params: ListStacksParams) {
-	const args = ['stacks'];
+export function listStacks(params: ListStacksParams): ExtendedStackListing[] {
+	const args = ['stacks', '-w'];
 
-	return executeGitButlerCommand(params.project_directory, args, StackListSchema);
+	const stacks = executeGitButlerCommand(params.project_directory, args, StackListSchema);
+	const result: ExtendedStackListing[] = [];
+	for (const stack of stacks) {
+		const stackBranches = listStackBranches({
+			project_directory: params.project_directory,
+			stack_id: stack.id
+		});
+
+		result.push({
+			id: stack.id,
+			heads: stackBranches.map((branch) => ({
+				name: branch.name,
+				tip: branch.tip,
+				archived: branch.archived,
+				description: branch.description
+			}))
+		});
+	}
+
+	return result;
 }
 
 const ListStackBranchesParamsSchema = BaseParamsSchema.extend({
@@ -86,9 +118,57 @@ function getBranchCommits(params: GetBranchCommitsParams) {
 	return executeGitButlerCommand(params.project_directory, args, BranchCommitsSchema);
 }
 
+type GetHunkDependenciesParams = z.infer<typeof BaseParamsSchema>;
+
+type FileStackDependencies = {
+	/**
+	 * The file path of the diff.
+	 */
+	filePath: string;
+
+	/**
+	 * The commit IDs that that the file is locked to.
+	 */
+	lockedToCommitIds: string[];
+};
+
+function getHunkDependencies(params: GetHunkDependenciesParams) {
+	const args = ['dep', '--simple'];
+
+	const dependencies = executeGitButlerCommand(
+		params.project_directory,
+		args,
+		HunkDependenciesSchema
+	);
+
+	const fileDependencies = new Map<string, Set<string>>();
+
+	for (const [filePath, _, locks] of dependencies.diffs) {
+		if (!fileDependencies.has(filePath)) {
+			fileDependencies.set(filePath, new Set());
+		}
+		const fileLocks = fileDependencies.get(filePath);
+		if (fileLocks) {
+			for (const lock of locks) {
+				fileLocks.add(lock.commitId);
+			}
+		}
+	}
+
+	// Serialize
+	const serializedDependencies: FileStackDependencies[] = Array.from(
+		fileDependencies.entries()
+	).map(([filePath, locks]) => ({
+		filePath,
+		lockedToCommitIds: Array.from(locks)
+	}));
+
+	return serializedDependencies;
+}
+
 const TOOL_LISTINGS = [
 	{
-		name: 'get_unified_wortree_changes',
+		name: 'list_file_changes',
 		description:
 			'Get the file changes of the current GitButler project. Always call this tool when you want to get the file changes.',
 		inputSchema: zodToJsonSchema(StatusParamsSchema)
@@ -110,6 +190,12 @@ const TOOL_LISTINGS = [
 		description:
 			'Get the commits of a branch in a stack. This returns a list of commit information, including authors, message and whether they are conflicted.',
 		inputSchema: zodToJsonSchema(GetBranchCommitsParamsSchema)
+	},
+	{
+		name: 'get_hunk_dependencies',
+		description:
+			'Get the dependencies of a hunk in a stack. This returns a list of hunk dependencies, including the stack ID and commit ID.',
+		inputSchema: zodToJsonSchema(BaseParamsSchema)
 	}
 ] as const;
 
@@ -134,54 +220,43 @@ export async function getStatusToolRequestHandler(
 		return null;
 	}
 
-	switch (toolName) {
-		case 'get_unified_wortree_changes': {
-			try {
+	try {
+		switch (toolName) {
+			case 'list_file_changes': {
 				const params = StatusParamsSchema.parse(args);
 				const result = status(params);
 				return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-			} catch (error: unknown) {
-				if (error instanceof Error)
-					return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
-
-				return { content: [{ type: 'text', text: `Error: ${String(error)}` }], isError: true };
 			}
-		}
-		case 'list_stacks': {
-			try {
+			case 'list_stacks': {
 				const params = ListStacksParamsSchema.parse(args);
 				const result = listStacks(params);
 				return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-			} catch (error: unknown) {
-				if (error instanceof Error)
-					return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
-
-				return { content: [{ type: 'text', text: `Error: ${String(error)}` }], isError: true };
 			}
-		}
-		case 'list_stack_branches': {
-			try {
+			case 'list_stack_branches': {
 				const params = ListStackBranchesParamsSchema.parse(args);
 				const result = listStackBranches(params);
 				return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-			} catch (error: unknown) {
-				if (error instanceof Error)
-					return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
-
-				return { content: [{ type: 'text', text: `Error: ${String(error)}` }], isError: true };
 			}
-		}
-		case 'get_branch_commits': {
-			try {
+			case 'get_branch_commits': {
 				const params = GetBranchCommitsParamsSchema.parse(args);
 				const result = getBranchCommits(params);
 				return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-			} catch (error: unknown) {
-				if (error instanceof Error)
-					return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
-
-				return { content: [{ type: 'text', text: `Error: ${String(error)}` }], isError: true };
+			}
+			case 'get_hunk_dependencies': {
+				const params = BaseParamsSchema.parse(args);
+				const result = getHunkDependencies(params);
+				return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
 			}
 		}
+	} catch (error: unknown) {
+		if (error instanceof z.ZodError) {
+			throw error;
+		}
+
+		if (error instanceof Error) {
+			return { content: [{ type: 'text', text: error.message }] };
+		}
+
+		return { content: [{ type: 'text', text: String(error) }] };
 	}
 }

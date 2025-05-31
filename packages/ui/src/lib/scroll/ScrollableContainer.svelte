@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Scrollbar, { type ScrollbarPaddingType } from '$lib/scroll/Scrollbar.svelte';
-	import { type Snippet } from 'svelte';
+	import { useAutoScroll } from '$lib/utils/autoscroll';
+	import type { Snippet } from 'svelte';
 
 	interface Props {
 		height?: string;
@@ -11,15 +12,23 @@
 		shift?: string;
 		thickness?: string;
 		horz?: boolean;
+		zIndex?: string;
 		whenToShow: 'hover' | 'always' | 'scroll';
+		autoScroll?: boolean;
 		onthumbdrag?: (dragging: boolean) => void;
 		children: Snippet;
 		onscrollTop?: (visible: boolean) => void;
 		onscrollEnd?: (visible: boolean) => void;
 		onscroll?: (e: Event) => void;
+		viewport?: HTMLDivElement;
+		viewportHeight?: number;
+		/** Top padding, used only with virtual list. */
+		top?: number;
+		/** Bottom padding, used with virtual list. */
+		bottom?: number;
 	}
 
-	const {
+	let {
 		height,
 		maxHeight,
 		initiallyVisible,
@@ -29,41 +38,48 @@
 		thickness,
 		horz,
 		whenToShow,
+		autoScroll,
 		children,
 		onthumbdrag,
 		onscroll,
 		onscrollTop,
-		onscrollEnd
+		onscrollEnd,
+		zIndex,
+		viewport = $bindable(),
+		top,
+		bottom,
+		viewportHeight = $bindable()
 	}: Props = $props();
 
-	let viewport = $state<HTMLDivElement>();
 	let scrollTopVisible = $state<boolean>(true);
 	let scrollEndVisible = $state<boolean>(true);
 
-	function isScrollEndVisible(target: HTMLDivElement) {
-		if (target) {
-			return target.scrollTop + target.clientHeight >= target.scrollHeight;
-		}
-		return false;
+	// Function to check scroll position and update visibility states
+	function checkScrollPosition() {
+		if (!viewport) return;
+
+		const { scrollTop, scrollHeight, clientHeight } = viewport;
+		const threshold = 1; // Small threshold to account for sub-pixel scrolling
+
+		// Check if we're at the top
+		const atTop = scrollTop <= threshold;
+		scrollTopVisible = atTop;
+
+		// Check if we're at the bottom
+		const atBottom = scrollTop + clientHeight >= scrollHeight - threshold;
+		scrollEndVisible = atBottom;
 	}
 
-	function isScrollTopVisible(target: HTMLDivElement) {
-		if (target) {
-			return target.scrollTop < 1;
-		}
-		return false;
+	// Handle scroll events
+	function handleScroll(e: Event) {
+		checkScrollPosition();
+		onscroll?.(e);
 	}
 
-	export function scrollToBottom() {
-		if (viewport) {
-			viewport.scrollTop = viewport.scrollHeight;
-		}
-	}
-
+	// Check initial position when viewport is available
 	$effect(() => {
 		if (viewport) {
-			scrollTopVisible = isScrollTopVisible(viewport);
-			scrollEndVisible = isScrollEndVisible(viewport);
+			checkScrollPosition();
 		}
 	});
 
@@ -82,37 +98,19 @@
 			onscrollEnd?.(false);
 		}
 	});
-
-	$effect(() => {
-		if (viewport) {
-			const observerMutations = new MutationObserver(() => {
-				if (viewport && scrollEndVisible && !scrollTopVisible) {
-					const stillVisible = isScrollEndVisible(viewport);
-					if (!stillVisible) {
-						viewport.scrollTop = viewport.scrollHeight;
-					}
-				}
-			});
-			observerMutations.observe(viewport, { childList: true, subtree: true });
-		}
-	});
 </script>
 
 <div class="scrollable" style:flex-grow={wide ? 1 : 0} style:max-height={maxHeight}>
 	<div
 		bind:this={viewport}
+		use:useAutoScroll={{ enabled: autoScroll }}
+		bind:offsetHeight={viewportHeight}
+		onscroll={handleScroll}
 		class="viewport hide-native-scrollbar"
+		style="padding-top: {top}px; padding-bottom: {bottom}px;"
 		style:height
-		style:overflow-y="auto"
-		onscroll={(e) => {
-			const target = e.target as HTMLDivElement;
-			scrollTopVisible = isScrollTopVisible(target);
-			scrollEndVisible = isScrollEndVisible(target);
-
-			onscroll?.(e);
-		}}
 	>
-		<div class="viewport-content">
+		<div class="children-wrap hide-native-scrollbar">
 			{@render children()}
 		</div>
 		<Scrollbar
@@ -122,6 +120,7 @@
 			{padding}
 			{shift}
 			{thickness}
+			{zIndex}
 			{horz}
 			{onthumbdrag}
 		/>
@@ -131,18 +130,20 @@
 <style lang="postcss">
 	.scrollable {
 		display: flex;
-		flex-direction: column;
 		position: relative;
-		overflow: hidden;
+		flex-direction: column;
 		height: 100%;
+		overflow: hidden;
 	}
 	.viewport {
-		height: 100%;
+		display: flex;
+		flex-direction: column;
 		width: 100%;
+		height: 100%;
+		overflow-y: auto;
 	}
-	/* need this wrapper to not mess with
-	 * pseudo selectors like ::last-child */
-	.viewport-content {
+
+	.children-wrap {
 		display: contents;
 	}
 </style>

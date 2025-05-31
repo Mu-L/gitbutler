@@ -1,5 +1,6 @@
 <script lang="ts">
 	import AIPromptEdit from '$components/AIPromptEdit.svelte';
+	import AiCredentialCheck from '$components/AiCredentialCheck.svelte';
 	import AuthorizationBanner from '$components/AuthorizationBanner.svelte';
 	import InfoMessage from '$components/InfoMessage.svelte';
 	import Section from '$components/Section.svelte';
@@ -9,10 +10,12 @@
 	import { getSecretsService } from '$lib/secrets/secretsService';
 	import { UserService } from '$lib/user/userService';
 	import { getContext } from '@gitbutler/shared/context';
+	import Icon from '@gitbutler/ui/Icon.svelte';
 	import RadioButton from '@gitbutler/ui/RadioButton.svelte';
 	import SectionCard from '@gitbutler/ui/SectionCard.svelte';
 	import Spacer from '@gitbutler/ui/Spacer.svelte';
 	import Textbox from '@gitbutler/ui/Textbox.svelte';
+	import Link from '@gitbutler/ui/link/Link.svelte';
 	import Select from '@gitbutler/ui/select/Select.svelte';
 	import SelectItem from '@gitbutler/ui/select/SelectItem.svelte';
 	import { onMount, tick } from 'svelte';
@@ -35,6 +38,8 @@
 	let diffLengthLimit: number | undefined = $state();
 	let ollamaEndpoint: string | undefined = $state();
 	let ollamaModel: string | undefined = $state();
+	let lmStudioEndpoint: string | undefined = $state();
+	let lmStudioModel: string | undefined = $state();
 
 	async function setConfiguration(key: GitAIConfigKey, value: string | undefined) {
 		if (!initialized) return;
@@ -61,6 +66,9 @@
 
 		ollamaEndpoint = await aiService.getOllamaEndpoint();
 		ollamaModel = await aiService.getOllamaModelName();
+
+		lmStudioEndpoint = await aiService.getLMStudioEndpoint();
+		lmStudioModel = await aiService.getLMStudioModelName();
 
 		// Ensure reactive declarations have finished running before we set initialized to true
 		await tick();
@@ -106,6 +114,14 @@
 		{
 			label: 'Sonnet 3.7 (recommended)',
 			value: AnthropicModelName.Sonnet37
+		},
+		{
+			label: 'Sonnet 4',
+			value: AnthropicModelName.Sonnet4
+		},
+		{
+			label: 'Opus 4',
+			value: AnthropicModelName.Opus4
 		}
 	];
 
@@ -146,14 +162,27 @@
 		setConfiguration(GitAIConfigKey.OllamaModelName, ollamaModel);
 	});
 	run(() => {
+		setConfiguration(GitAIConfigKey.LMStudioEndpoint, lmStudioEndpoint);
+	});
+	run(() => {
+		setConfiguration(GitAIConfigKey.LMStudioModelName, lmStudioModel);
+	});
+	run(() => {
 		if (form) form.modelKind.value = modelKind;
 	});
 </script>
 
-<p class="text-13 text-body ai-settings__text">
+{#snippet shortNote(text: string)}
+	<div class="ai-settings__short-note">
+		<Icon name="info-small" />
+		<p class="text-12 text-body">{text}</p>
+	</div>
+{/snippet}
+
+<p class="text-13 text-body ai-settings__about-text">
 	GitButler supports multiple providers for its AI powered features. We currently support models
 	from OpenAI and Anthropic either proxied through the GitButler API, or in a bring your own key
-	configuration.
+	configuration. We also support local models through Ollama and LM Studio.
 </p>
 
 <form class="git-radio" bind:this={form} onchange={(e) => onFormChange(e.currentTarget)}>
@@ -192,11 +221,7 @@
 				{#if !$user}
 					<AuthorizationBanner message="Please sign in to use the GitButler API." />
 				{:else}
-					<InfoMessage filled outlined={false} style="pop" icon="ai">
-						{#snippet title()}
-							GitButler uses OpenAI API for commit messages and branch names
-						{/snippet}
-					</InfoMessage>
+					{@render shortNote('GitButler uses OpenAI API for commit messages and branch names.')}
 				{/if}
 			{/if}
 
@@ -258,11 +283,7 @@
 				{#if !$user}
 					<AuthorizationBanner message="Please sign in to use the GitButler API." />
 				{:else}
-					<InfoMessage filled outlined={false} style="pop" icon="ai">
-						{#snippet title()}
-							GitButler uses Anthropic API for commit messages and branch names
-						{/snippet}
-					</InfoMessage>
+					{@render shortNote('GitButler uses Anthropic API for commit messages and branch names.')}
 				{/if}
 			{/if}
 
@@ -294,7 +315,7 @@
 
 	<SectionCard
 		roundedTop={false}
-		roundedBottom={modelKind !== ModelKind.Ollama}
+		roundedBottom={false}
 		orientation="row"
 		labelFor="ollama"
 		bottomBorder={modelKind !== ModelKind.Ollama}
@@ -307,12 +328,74 @@
 		{/snippet}
 	</SectionCard>
 	{#if modelKind === ModelKind.Ollama}
-		<SectionCard roundedTop={false} topDivider>
+		<SectionCard roundedTop={false} roundedBottom={false} topDivider>
 			<Textbox label="Endpoint" bind:value={ollamaEndpoint} placeholder="http://127.0.0.1:11434" />
-
 			<Textbox label="Model" bind:value={ollamaModel} placeholder="llama3" />
+			<InfoMessage filled outlined={false}>
+				{#snippet title()}
+					Configuring Ollama
+				{/snippet}
+				{#snippet content()}
+					To connect to your Ollama endpoint, <b>allow-list it in the app’s CSP settings</b>.
+					<br />
+					See the <Link href="https://docs.gitbutler.com/troubleshooting/custom-csp"
+						>docs for details</Link
+					>
+				{/snippet}
+			</InfoMessage>
 		</SectionCard>
 	{/if}
+
+	<SectionCard
+		roundedTop={false}
+		roundedBottom={false}
+		orientation="row"
+		labelFor="lmstudio"
+		bottomBorder={modelKind !== ModelKind.LMStudio}
+	>
+		{#snippet title()}
+			LM Studio
+		{/snippet}
+		{#snippet actions()}
+			<RadioButton name="modelKind" id="lmstudio" value={ModelKind.LMStudio} />
+		{/snippet}
+	</SectionCard>
+	{#if modelKind === ModelKind.LMStudio}
+		<SectionCard roundedTop={false} roundedBottom={false} topDivider>
+			<Textbox label="Endpoint" bind:value={lmStudioEndpoint} placeholder="http://127.0.0.1:1234" />
+			<Textbox label="Model" bind:value={lmStudioModel} placeholder="default" />
+			<InfoMessage filled outlined={false}>
+				{#snippet title()}
+					Configuring LM Studio
+				{/snippet}
+				{#snippet content()}
+					<div class="ai-settings__section-text-block">
+						<p>Connecting to your LM Studio endpoint requires that you do two things:</p>
+
+						<p>
+							1. <span class="text-bold">Allow-list it in the CSP settings for the application</span
+							>. You can find more details on how to do that in the <Link
+								href="https://docs.gitbutler.com/troubleshooting/custom-csp">GitButler docs</Link
+							>.
+						</p>
+
+						<p>
+							2. <span class="text-bold">Enable CORS support in LM Studio</span>. You can find more
+							details on how to do that in the <Link
+								href="https://lmstudio.ai/docs/cli/server-start#enable-cors-support"
+								>LM Studio docs</Link
+							>.
+						</p>
+					</div>
+				{/snippet}
+			</InfoMessage>
+		</SectionCard>
+	{/if}
+
+	<!-- AI credential check -->
+	<SectionCard roundedTop={false}>
+		<AiCredentialCheck />
+	</SectionCard>
 </form>
 
 <Spacer />
@@ -338,9 +421,7 @@
 		/>
 	{/snippet}
 </SectionCard>
-
 <Spacer />
-
 <Section>
 	{#snippet title()}
 		Custom AI prompts
@@ -358,15 +439,30 @@
 </Section>
 
 <style>
-	.ai-settings__text {
-		color: var(--clr-text-2);
+	.ai-settings__about-text {
 		margin-bottom: 12px;
+		color: var(--clr-text-2);
 	}
 
 	.prompt-groups {
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
 		margin-top: 16px;
+		gap: 12px;
+	}
+
+	.ai-settings__short-note {
+		display: flex;
+		align-items: center;
+		padding: 6px 10px;
+		gap: 8px;
+		border-radius: var(--radius-m);
+		background-color: var(--clr-bg-2);
+		color: var(--clr-text-2);
+	}
+
+	.ai-settings__section-text-block {
+		display: flex;
+		flex-direction: column;
 	}
 </style>

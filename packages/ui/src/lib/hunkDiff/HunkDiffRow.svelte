@@ -16,14 +16,17 @@
 	import Button from '$lib/Button.svelte';
 	import Checkbox from '$lib/Checkbox.svelte';
 	import Icon from '$lib/Icon.svelte';
+	import InfoButton from '$lib/InfoButton.svelte';
 	import {
 		CountColumnSide,
 		isDeltaLine,
 		SectionType,
+		type DependencyLock,
 		type DiffFileLineId,
 		type Row
 	} from '$lib/utils/diffParsing';
 	import type LineSelection from '$lib/hunkDiff/lineSelection.svelte';
+	import type { Snippet } from 'svelte';
 
 	interface Props {
 		idx: number;
@@ -42,12 +45,13 @@
 		hideCheckboxes?: boolean;
 		handleLineContextMenu?: (params: ContextMenuParams) => void;
 		minWidth: number;
+		lockWarning?: Snippet<[DependencyLock[]]>;
 	}
 
 	const {
 		idx,
 		row,
-		clickable = false,
+		clickable: isClickable = false,
 		lineSelection,
 		tabSize,
 		wrapText,
@@ -60,7 +64,8 @@
 		staged,
 		hideCheckboxes,
 		handleLineContextMenu,
-		minWidth
+		minWidth,
+		lockWarning
 	}: Props = $props();
 
 	const touchDevice = isTouchDevice();
@@ -103,11 +108,16 @@
 			}
 		}
 	});
+
+	const locked = $derived(row.locks !== undefined && row.locks.length > 0);
+	const clickable = $derived(isClickable && !locked);
 </script>
 
-{#snippet countColumn(row: Row, side: CountColumnSide, idx: number)}
+{#snippet countColumn(side: CountColumnSide)}
 	{@const deltaLine = isDeltaLine(row.type)}
 	<td
+		data-testid="hunk-count-column"
+		data-is-delta-line={deltaLine}
 		class="table__numberColumn"
 		data-no-drag
 		class:diff-line-deletion={row.type === SectionType.RemovedLines}
@@ -117,11 +127,12 @@
 		class:is-last={row.isLast}
 		class:is-before={side === CountColumnSide.Before}
 		class:staged={staged && deltaLine}
+		class:locked
 		style="--staging-column-width: {stagingColumnWidth}px; --number-col-width: {minWidth}rem;"
 		class:stagable={staged !== undefined && !hideCheckboxes}
-		onmousedown={(ev) => lineSelection.onStart(ev, row, idx)}
-		onmouseenter={(ev) => lineSelection.onMoveOver(ev, row, idx)}
-		onmouseup={() => lineSelection.onEnd()}
+		onmousedown={(ev) => !locked && lineSelection.onStart(ev, row, idx)}
+		onmouseenter={(ev) => !locked && lineSelection.onMoveOver(ev, row, idx)}
+		onmouseup={() => !locked && lineSelection.onEnd()}
 		oncontextmenu={(ev) => {
 			ev.preventDefault();
 			ev.stopPropagation();
@@ -157,9 +168,10 @@
 			align="center"
 			class:is-last={row.isLast}
 			class:staged={staged && deltaLine}
-			onmousedown={(ev) => lineSelection.onStart(ev, row, idx)}
-			onmouseenter={(ev) => lineSelection.onMoveOver(ev, row, idx)}
-			onmouseup={() => lineSelection.onEnd()}
+			class:locked
+			onmousedown={(ev) => !locked && lineSelection.onStart(ev, row, idx)}
+			onmouseenter={(ev) => !locked && lineSelection.onMoveOver(ev, row, idx)}
+			onmouseup={() => !locked && lineSelection.onEnd()}
 			oncontextmenu={(ev) => {
 				ev.preventDefault();
 				ev.stopPropagation();
@@ -171,8 +183,19 @@
 			}}
 		>
 			{#if deltaLine}
-				<div class="table__row-checkbox">
-					{#if staged}
+				<div class="table__row-checkbox" class:locked>
+					{#if locked}
+						{@const locks = row.locks}
+						{#if lockWarning && locks && locks.length > 0}
+							<div data-testid="hunk-line-locking-info" class="table__row-locks-info-button">
+								<InfoButton inheritColor size="small" icon="locked-small">
+									{@render lockWarning(locks)}
+								</InfoButton>
+							</div>
+						{:else}
+							<Icon name="locked-small" />
+						{/if}
+					{:else if staged}
 						<Checkbox checked={staged} small style="ghost" />
 					{:else}
 						<Icon name="minus-small" />
@@ -182,8 +205,8 @@
 		</td>
 	{/if}
 
-	{@render countColumn(row, CountColumnSide.Before, idx)}
-	{@render countColumn(row, CountColumnSide.After, idx)}
+	{@render countColumn(CountColumnSide.Before)}
+	{@render countColumn(CountColumnSide.After)}
 	<td
 		class="table__textContent"
 		style="--tab-size: {tabSize}; --wrap: {wrapText ? 'wrap' : 'nowrap'}"
@@ -257,50 +280,50 @@
 <style lang="postcss">
 	td,
 	tr {
-		padding: 0;
 		margin: 0;
-		user-select: none;
+		padding: 0;
 		font-family: var(--diff-font);
+		user-select: none;
 	}
 
 	.table__textContent {
 		width: 100%;
-		font-size: 12px;
 		padding-left: 4px;
+		font-size: 12px;
 		line-height: 1.25;
-		tab-size: var(--tab-size);
-		white-space: pre;
-		user-select: text;
-		cursor: text;
 		text-wrap: var(--wrap);
+		white-space: pre;
+		cursor: text;
+		tab-size: var(--tab-size);
+		user-select: text;
 	}
 
 	.table__row-header {
-		min-height: 20px;
+		position: relative;
+		min-height: 18px;
+		text-wrap: var(--wrap);
 		white-space: pre;
+		cursor: text;
 		user-select: text;
 		-webkit-user-select: text;
-		cursor: text;
-		position: relative;
-		text-wrap: var(--wrap);
 	}
 
 	.table__selected-row-overlay {
 		z-index: var(--z-lifted);
 		position: absolute;
-		pointer-events: none;
 		top: 0;
+		pointer-events: none;
 
 		/* border + left padding + number column width */
 		--offset: calc(2px + 4px + var(--number-col-width));
+		box-sizing: border-box;
 
 		left: calc(var(--offset) * -1);
 		width: calc(var(--width) + 1px);
 		height: var(--height);
-		box-sizing: border-box;
+		border-right: 1px solid var(--clr-theme-warn-element);
 
 		border-left: 1px solid var(--clr-theme-warn-element);
-		border-right: 1px solid var(--clr-theme-warn-element);
 
 		background: color-mix(in srgb, var(--clr-btn-warn-outline-bg), transparent 30%);
 		mix-blend-mode: multiply;
@@ -315,17 +338,17 @@
 	}
 
 	.table__selected-row-overflow-menu {
+		display: flex;
 		z-index: var(--z-lifted);
 		position: absolute;
 		top: calc(var(--height) - var(--overflow-menu-height) - 6px);
 		left: 0;
-		display: flex;
-		pointer-events: none;
-		background: var(--clr-bg-1);
 		border: 1px solid var(--clr-border-2);
 		border-radius: var(--radius-m);
+		background: var(--clr-bg-1);
 		box-shadow: var(--fx-shadow-s);
 		opacity: 0;
+		pointer-events: none;
 		transition: opacity var(--transition-medium);
 
 		.button-wrapper:not(:last-child) {
@@ -344,34 +367,38 @@
 
 	.table__numberColumn {
 		z-index: var(--z-ground);
-		color: var(--clr-diff-count-text);
-		border-color: var(--clr-diff-count-border);
-		background-color: var(--clr-diff-count-bg);
-		font-size: 11px;
-		text-align: center;
-		padding: 0 4px;
-		text-align: right;
-		user-select: none;
-		touch-action: none;
 
 		position: sticky;
 		left: calc(var(--number-col-width));
 		width: var(--number-col-width);
 		min-width: var(--number-col-width);
+		padding: 0 4px;
+		border-color: var(--clr-diff-count-border);
 
 		border-right: 1px solid var(--clr-border-2);
+		background-color: var(--clr-diff-count-bg);
+		color: var(--clr-diff-count-text);
+		font-size: 11px;
+		text-align: center;
+		text-align: right;
+		touch-action: none;
+		user-select: none;
+
+		/* Staging column width + 1 border width-ish. */
+		/* It's kind of a hack to ad the fraction of a pixel here, but table CSS sucks */
+		--column-and-boder: calc(var(--staging-column-width) + 0.5px);
 
 		&.diff-line-addition {
+			border-color: var(--clr-diff-addition-count-border);
 			background-color: var(--clr-diff-addition-count-bg);
 			color: var(--clr-diff-addition-count-text);
-			border-color: var(--clr-diff-addition-count-border);
 			--checkmark-color: var(--clr-diff-addition-count-checkmark);
 		}
 
 		&.diff-line-deletion {
+			border-color: var(--clr-diff-deletion-count-border);
 			background-color: var(--clr-diff-deletion-count-bg);
 			color: var(--clr-diff-deletion-count-text);
-			border-color: var(--clr-diff-deletion-count-border);
 			--checkmark-color: var(--clr-diff-deletion-count-checkmark);
 		}
 
@@ -382,31 +409,33 @@
 		&.clickable {
 			cursor: pointer;
 		}
-
-		/* Staging column width + 1 border width-ish. */
-		/* It's kind of a hack to ad the fraction of a pixel here, but table CSS sucks */
-		--column-and-boder: calc(var(--staging-column-width) + 0.5px);
 		&.stagable {
-			min-width: var(--staging-column-width);
 			left: calc(var(--column-and-boder));
+			min-width: var(--staging-column-width);
 		}
 
 		&.stagable:not(.is-before) {
-			min-width: var(--staging-column-width);
 			left: calc(var(--column-and-boder) * 2);
+			min-width: var(--staging-column-width);
 		}
 
 		&.staged {
-			background-color: var(--clr-diff-selected-count-bg);
 			border-color: var(--clr-diff-selected-count-border);
+			background-color: var(--clr-diff-selected-count-bg);
 			color: var(--clr-diff-selected-count-text);
+		}
+
+		&.locked {
+			border-color: var(--clr-diff-locked-count-border);
+			background-color: var(--clr-diff-locked-count-bg);
+			color: var(--clr-diff-locked-count-text);
 		}
 	}
 
 	.table__numberColumn:first-of-type {
+		left: 0px;
 		width: var(--number-col-width);
 		min-width: var(--number-col-width);
-		left: 0px;
 	}
 
 	/* DIFF LINE */
@@ -419,17 +448,25 @@
 	}
 
 	.table__row-checkbox {
-		display: flex;
-		justify-content: center;
-		align-items: center;
 		box-sizing: border-box;
+		display: flex;
 		flex-shrink: 0;
-		pointer-events: none;
-
-		color: var(--checkmark-color);
-		margin: 0;
-		padding: 0;
+		align-items: center;
+		justify-content: center;
 		width: 18px;
 		height: 18px;
+		margin: 0;
+		padding: 0;
+
+		color: var(--checkmark-color);
+		pointer-events: none;
+
+		&.locked {
+			color: var(--clr-diff-locked-count-text);
+		}
+	}
+
+	.table__row-locks-info-button {
+		pointer-events: all;
 	}
 </style>

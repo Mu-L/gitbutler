@@ -4,6 +4,7 @@
 </script>
 
 <script lang="ts">
+	import { copyToClipboard } from '@gitbutler/shared/clipboard';
 	import Button from '@gitbutler/ui/Button.svelte';
 	import Icon from '@gitbutler/ui/Icon.svelte';
 	import type iconsJson from '@gitbutler/ui/data/icons.json';
@@ -27,23 +28,25 @@
 		error?: string | undefined;
 		title?: Snippet;
 		content?: Snippet;
+		testId?: string;
 	}
 
 	const {
-		icon: iconName = undefined,
+		icon: iconName,
 		style = 'neutral',
 		outlined = true,
 		filled = false,
 		primaryLabel = '',
-		primaryIcon = undefined,
+		primaryIcon,
 		primaryAction,
 		secondaryLabel = '',
-		secondaryIcon = undefined,
+		secondaryIcon,
 		secondaryAction,
 		shadow = false,
-		error = undefined,
+		error,
 		title,
-		content
+		content,
+		testId
 	}: Props = $props();
 
 	const iconMap: { [Key in MessageStyle]: IconName } = {
@@ -70,20 +73,23 @@
 		success: 'pop'
 	};
 
-	const resolvedIconName = iconName ?? (iconMap[style] as IconName);
+	const resolvedIconName = $derived(iconName ?? (iconMap[style] as IconName));
 </script>
 
 <div
+	data-testid={testId}
 	class="info-message {style}"
 	class:has-border={outlined}
 	class:has-background={filled}
 	class:shadow
 >
-	<Icon name={resolvedIconName} color={iconColorMap[style]} />
+	<div class="info-message__icon">
+		<Icon name={resolvedIconName} color={iconColorMap[style]} />
+	</div>
 	<div class="info-message__inner">
 		<div class="info-message__content">
 			{#if title}
-				<div class="info-message__title text-13 text-body text-semibold">
+				<div class="info-message__title text-13 text-body text-bold">
 					{@render title()}
 				</div>
 			{/if}
@@ -96,13 +102,20 @@
 		</div>
 
 		{#if error}
-			<code class="info-message__error-block">
+			<!-- <div class="info-message__error-block-wrap scrollbar"> -->
+			<code class="info-message__error-block scrollbar">
 				{error}
 			</code>
+			<!-- </div> -->
 		{/if}
 
 		{#if primaryLabel || secondaryLabel}
 			<div class="info-message__actions">
+				{#if error}
+					<Button kind="ghost" onclick={() => copyToClipboard(error)} icon="copy-small">
+						Copy error message
+					</Button>
+				{/if}
 				{#if secondaryLabel}
 					<Button kind="outline" onclick={() => secondaryAction?.()} icon={secondaryIcon}>
 						{secondaryLabel}
@@ -124,12 +137,12 @@
 
 <style lang="postcss">
 	.info-message {
-		color: var(--clr-scale-ntrl-0);
 		display: flex;
 		padding: 14px;
-		border-radius: var(--radius-m);
 		gap: 12px;
+		border-radius: var(--radius-m);
 		background-color: var(--clr-bg-1);
+		color: var(--clr-scale-ntrl-0);
 		transition:
 			background-color var(--transition-slow),
 			border-color var(--transition-slow);
@@ -138,8 +151,8 @@
 		display: flex;
 		flex-grow: 1;
 		flex-direction: column;
+		overflow: hidden;
 		gap: 12px;
-		overflow-x: hidden;
 	}
 	.info-message__content {
 		display: flex;
@@ -147,19 +160,20 @@
 		gap: 6px;
 		user-select: text;
 	}
+	.info-message__icon {
+		display: flex;
+		flex-shrink: 0;
+		padding: 2px 0;
+	}
 	.info-message__actions {
 		display: flex;
-		gap: 6px;
 		justify-content: flex-end;
+		gap: 6px;
 	}
 	.info-message__text {
 		&:empty {
 			display: none;
 		}
-	}
-
-	.info-message__text :global(pre) {
-		white-space: pre-wrap;
 	}
 
 	/* MODIFIERS */
@@ -183,7 +197,6 @@
 	}
 
 	/* OUTLINED */
-
 	.has-border {
 		border-width: 1px;
 	}
@@ -212,18 +225,15 @@
 
 	/* ERROR BLOCK */
 	.info-message__error-block {
-		user-select: auto;
-		padding: 4px 8px;
+		padding: 10px 10px 0;
 		overflow-x: auto;
+		overflow-x: scroll;
+		border-radius: var(--radius-s);
 		background-color: var(--clr-scale-err-90);
 		color: var(--clr-scale-err-10);
-		border-radius: var(--radius-s);
 		font-size: 12px;
-
-		/* scrollbar */
-		&::-webkit-scrollbar {
-			display: none;
-		}
+		white-space: pre;
+		user-select: text;
 
 		/* selection */
 		&::selection {
@@ -238,15 +248,15 @@
 
 	/* rendered markdown requires global */
 	:global(.info-message__text a) {
-		cursor: pointer;
 		text-decoration: underline;
 		word-break: break-all; /* allow long links to wrap */
+		cursor: pointer;
 	}
 	:global(.info-message__text p:not(:last-child)) {
 		margin-bottom: 10px;
 	}
 	:global(.info-message__text ul) {
-		list-style-type: circle;
 		padding: 0 0 0 16px;
+		list-style-type: circle;
 	}
 </style>

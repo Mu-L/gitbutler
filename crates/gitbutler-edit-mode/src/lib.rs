@@ -131,23 +131,10 @@ fn find_or_create_base_commit<'a>(
     Ok(repository.find_commit(base)?)
 }
 
-fn commit_uncommited_changes(ctx: &CommandContext, parent: git2::Oid) -> Result<()> {
+fn commit_uncommited_changes(ctx: &CommandContext) -> Result<()> {
     let repository = ctx.repo();
-    let author_signature = signature(SignaturePurpose::Author)?;
-    let committer_signature = signature(SignaturePurpose::Committer)?;
-    let parent = repository.find_commit(parent)?;
-
     let uncommited_changes = repository.create_wd_tree(0)?;
-    let uncommited_changes_commit = repository.commit(
-        None,
-        &author_signature,
-        &committer_signature,
-        "Conflict base",
-        &uncommited_changes,
-        &[&parent],
-    )?;
-
-    repository.reference(UNCOMMITED_CHANGES_REF, uncommited_changes_commit, true, "")?;
+    repository.reference(UNCOMMITED_CHANGES_REF, uncommited_changes.id(), true, "")?;
     Ok(())
 }
 
@@ -185,7 +172,7 @@ fn checkout_edit_branch(ctx: &CommandContext, commit: git2::Commit) -> Result<()
     Ok(())
 }
 
-fn find_virtual_branch_by_reference(
+fn find_stack_by_reference(
     ctx: &CommandContext,
     reference: &ReferenceName,
 ) -> Result<Option<Stack>> {
@@ -194,8 +181,8 @@ fn find_virtual_branch_by_reference(
         .list_stacks_in_workspace()
         .context("Failed to read virtual branches")?;
 
-    Ok(all_stacks.into_iter().find(|virtual_branch| {
-        let Ok(refname) = virtual_branch.refname() else {
+    Ok(all_stacks.into_iter().find(|branch| {
+        let Ok(refname) = branch.refname() else {
             return false;
         };
 
@@ -222,11 +209,11 @@ pub(crate) fn enter_edit_mode(
         branch_reference: branch_reference.to_string().into(),
     };
 
-    if find_virtual_branch_by_reference(ctx, &edit_mode_metadata.branch_reference)?.is_none() {
+    if find_stack_by_reference(ctx, &edit_mode_metadata.branch_reference)?.is_none() {
         bail!("Can not enter edit mode for a reference which does not have a cooresponding virtual branch")
     }
 
-    commit_uncommited_changes(ctx, commit.id())?;
+    commit_uncommited_changes(ctx)?;
     write_edit_mode_metadata(ctx, &edit_mode_metadata).context("Failed to persist metadata")?;
     checkout_edit_branch(ctx, commit).context("Failed to checkout edit branch")?;
 
@@ -270,8 +257,7 @@ pub(crate) fn save_and_return_to_workspace(
         .find_commit(edit_mode_metadata.commit_oid)
         .context("Failed to find commit")?;
 
-    let Some(mut stack) =
-        find_virtual_branch_by_reference(ctx, &edit_mode_metadata.branch_reference)?
+    let Some(mut stack) = find_stack_by_reference(ctx, &edit_mode_metadata.branch_reference)?
     else {
         bail!("Failed to find virtual branch for this reference. Entering and leaving edit mode for non-virtual branches is unsupported")
     };
@@ -352,8 +338,18 @@ pub(crate) fn save_and_return_to_workspace(
         #[allow(deprecated)]
         checkout_branch_trees(ctx, perm)?;
     }
+
     update_workspace_commit(&vb_state, ctx)?;
-    list_virtual_branches(ctx, perm)?;
+
+    // Currently if the index goes wonky then files don't appear quite right.
+    // This just makes sure the index is all good.
+    let mut index = repository.index()?;
+    index.read_tree(&repository.head()?.peel_to_tree()?)?;
+    index.write()?;
+
+    if !ctx.app_settings().feature_flags.v3 {
+        list_virtual_branches(ctx, perm)?;
+    }
 
     Ok(())
 }

@@ -9,8 +9,13 @@ use super::Test;
 fn no_diffs() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     std::fs::write(repo.path().join("file.txt"), "content").unwrap();
 
@@ -23,9 +28,12 @@ fn no_diffs() {
     let commit_oid =
         gitbutler_branch_actions::create_commit(ctx, source_branch_id, "commit", None).unwrap();
 
-    let target_stack_entry =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let target_stack_entry = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     gitbutler_branch_actions::move_commit(ctx, target_stack_entry.id, commit_oid, source_branch_id)
         .unwrap();
@@ -57,8 +65,13 @@ fn no_diffs() {
 fn multiple_commits() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     std::fs::write(repo.path().join("a.txt"), "This is a").unwrap();
 
@@ -89,6 +102,7 @@ fn multiple_commits() {
             selected_for_changes: Some(true),
             ..Default::default()
         },
+        ctx.project().exclusive_worktree_access().write_permission(),
     )
     .unwrap();
 
@@ -145,8 +159,13 @@ fn multiple_commits() {
 fn multiple_commits_with_diffs() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     std::fs::write(repo.path().join("a.txt"), "This is a").unwrap();
 
@@ -185,6 +204,7 @@ fn multiple_commits_with_diffs() {
             selected_for_changes: Some(true),
             ..Default::default()
         },
+        ctx.project().exclusive_worktree_access().write_permission(),
     )
     .unwrap();
 
@@ -271,8 +291,13 @@ fn multiple_commits_with_diffs() {
 fn diffs_on_source_branch() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     std::fs::write(repo.path().join("file.txt"), "content").unwrap();
 
@@ -290,9 +315,12 @@ fn diffs_on_source_branch() {
     // needed in order to resolve the claims of the just-created file
     _ = gitbutler_branch_actions::list_virtual_branches(ctx);
 
-    let target_stack_entry =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let target_stack_entry = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     gitbutler_branch_actions::move_commit(ctx, target_stack_entry.id, commit_oid, source_branch_id)
         .unwrap();
@@ -333,8 +361,13 @@ fn diffs_on_source_branch() {
 fn diffs_on_target_branch() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     std::fs::write(repo.path().join("file.txt"), "content").unwrap();
 
@@ -353,6 +386,7 @@ fn diffs_on_target_branch() {
             selected_for_changes: Some(true),
             ..Default::default()
         },
+        ctx.project().exclusive_worktree_access().write_permission(),
     )
     .unwrap();
 
@@ -400,8 +434,13 @@ fn diffs_on_target_branch() {
 fn diffs_on_both_branches() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     std::fs::write(repo.path().join("file.txt"), "content").unwrap();
 
@@ -444,6 +483,7 @@ fn diffs_on_both_branches() {
             selected_for_changes: Some(true),
             ..Default::default()
         },
+        ctx.project().exclusive_worktree_access().write_permission(),
     )
     .unwrap();
 
@@ -520,8 +560,13 @@ fn diffs_on_both_branches() {
 fn target_commit_locked_to_ancestors() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     std::fs::write(repo.path().join("a.txt"), "This is a").unwrap();
 
@@ -540,9 +585,12 @@ fn target_commit_locked_to_ancestors() {
         gitbutler_branch_actions::create_commit(ctx, source_branch_id, "Add b and update b", None)
             .unwrap();
 
-    let target_stack_entry =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let target_stack_entry = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     let result = gitbutler_branch_actions::move_commit(
         ctx,
@@ -561,8 +609,13 @@ fn target_commit_locked_to_ancestors() {
 fn target_commit_locked_to_descendants() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     std::fs::write(repo.path().join("a.txt"), "This is a").unwrap();
 
@@ -584,9 +637,12 @@ fn target_commit_locked_to_descendants() {
 
     gitbutler_branch_actions::create_commit(ctx, source_branch_id, "Update b", None).unwrap();
 
-    let target_stack_entry =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let target_stack_entry = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     let result = gitbutler_branch_actions::move_commit(
         ctx,
@@ -605,8 +661,13 @@ fn target_commit_locked_to_descendants() {
 fn locked_hunks_on_source_branch() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     std::fs::write(repo.path().join("file.txt"), "content").unwrap();
 
@@ -623,9 +684,12 @@ fn locked_hunks_on_source_branch() {
 
     _ = gitbutler_branch_actions::list_virtual_branches(ctx);
 
-    let target_stack_entry =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let target_stack_entry = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     assert_eq!(
         gitbutler_branch_actions::move_commit(
@@ -644,8 +708,13 @@ fn locked_hunks_on_source_branch() {
 fn no_commit() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     std::fs::write(repo.path().join("file.txt"), "content").unwrap();
 
@@ -657,9 +726,12 @@ fn no_commit() {
 
     gitbutler_branch_actions::create_commit(ctx, source_branch_id, "commit", None).unwrap();
 
-    let target_stack_entry =
-        gitbutler_branch_actions::create_virtual_branch(ctx, &BranchCreateRequest::default())
-            .unwrap();
+    let target_stack_entry = gitbutler_branch_actions::create_virtual_branch(
+        ctx,
+        &BranchCreateRequest::default(),
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     let commit_id_hex = "a99c95cca7a60f1a2180c2f86fb18af97333c192";
     assert_eq!(
@@ -679,8 +751,13 @@ fn no_commit() {
 fn no_branch() {
     let Test { repo, ctx, .. } = &Test::default();
 
-    gitbutler_branch_actions::set_base_branch(ctx, &"refs/remotes/origin/master".parse().unwrap())
-        .unwrap();
+    gitbutler_branch_actions::set_base_branch(
+        ctx,
+        &"refs/remotes/origin/master".parse().unwrap(),
+        false,
+        ctx.project().exclusive_worktree_access().write_permission(),
+    )
+    .unwrap();
 
     std::fs::write(repo.path().join("file.txt"), "content").unwrap();
 

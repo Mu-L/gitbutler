@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import Chrome from '$components/Chrome.svelte';
 	import DecorativeSplitView from '$components/DecorativeSplitView.svelte';
 	import ProjectNameLabel from '$components/ProjectNameLabel.svelte';
@@ -16,7 +17,6 @@
 	import * as toasts from '@gitbutler/ui/toasts';
 	import { isDefined } from '@gitbutler/ui/utils/typeguards';
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
 
 	interface Props {
 		error?: any;
@@ -107,23 +107,23 @@
 	}
 
 	.problem__title {
-		color: var(--clr-scale-ntrl-30);
 		margin-bottom: 12px;
+		color: var(--clr-scale-ntrl-30);
 	}
 
 	.problem__switcher {
-		text-align: right;
 		margin-top: 24px;
+		text-align: right;
 	}
 
 	.problem__error {
 		display: flex;
-		color: var(--clr-scale-ntrl-0);
-		gap: 12px;
-		padding: 20px;
-		background-color: var(--clr-theme-err-bg);
-		border-radius: var(--radius-m);
 		margin-bottom: 12px;
+		padding: 20px;
+		gap: 12px;
+		border-radius: var(--radius-m);
+		background-color: var(--clr-theme-err-bg);
+		color: var(--clr-scale-ntrl-0);
 	}
 
 	.remove-project-btn {

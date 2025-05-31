@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { TestId } from '$lib/testing/testIds';
 	import { persisted } from '@gitbutler/shared/persisted';
 	import AsyncButton from '@gitbutler/ui/AsyncButton.svelte';
 	import Button from '@gitbutler/ui/Button.svelte';
@@ -42,8 +43,14 @@
 	</div>
 
 	<div class="submit-review-actions__general">
-		<Button kind="outline" loading={isSubmitting} onclick={onCancel}>Cancel</Button>
+		<Button
+			testId={TestId.ReviewCancelButton}
+			kind="outline"
+			disabled={isSubmitting}
+			onclick={onCancel}>Cancel</Button
+		>
 		<AsyncButton
+			testId={TestId.ReviewCreateButton}
 			width={166}
 			style="pop"
 			action={async () => onSubmit()}
@@ -57,8 +64,8 @@
 	.submit-review-actions {
 		display: flex;
 		justify-content: space-between;
-		gap: 6px;
 		width: 100%;
+		gap: 6px;
 	}
 
 	.submit-review-actions__extra,

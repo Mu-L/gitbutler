@@ -1,4 +1,4 @@
-use crate::{StackEntry, WorkspaceCommit};
+use crate::WorkspaceCommit;
 use bstr::ByteSlice;
 
 /// Construction
@@ -22,7 +22,7 @@ impl<'repo> WorkspaceCommit<'repo> {
     ///
     /// `object_hash` is needed to create an empty tree hash.
     pub fn create_commit_from_vb_state(
-        stacks: &[StackEntry],
+        stacks: &[crate::ui::StackEntry],
         object_hash: gix::hash::Kind,
     ) -> gix::objs::Commit {
         // message that says how to get back to where they were
@@ -63,7 +63,7 @@ impl<'repo> WorkspaceCommit<'repo> {
         let author = gix::actor::Signature {
             name: "GitButler".into(),
             email: "gitbutler@gitbutler.com".into(),
-            time: gix::date::Time::now_local_or_utc(),
+            time: commit_time("GIT_COMMITTER_DATE"),
         };
         gix::objs::Commit {
             tree: gix::ObjectId::empty_tree(object_hash),
@@ -77,6 +77,15 @@ impl<'repo> WorkspaceCommit<'repo> {
     }
 }
 
+/// Return the time of a commit as `now` unless the `overriding_variable_name` contains a parseable date,
+/// which is used instead.
+fn commit_time(overriding_variable_name: &str) -> gix::date::Time {
+    std::env::var(overriding_variable_name)
+        .ok()
+        .and_then(|time| gix::date::parse(&time, Some(std::time::SystemTime::now())).ok())
+        .unwrap_or_else(gix::date::Time::now_local_or_utc)
+}
+
 /// Query
 impl WorkspaceCommit<'_> {
     /// Return `true` if this commit is managed by GitButler.
@@ -84,8 +93,9 @@ impl WorkspaceCommit<'_> {
     /// once another branch is added to the workspace.
     pub fn is_managed(&self) -> bool {
         let message = gix::objs::commit::MessageRef::from_bytes(&self.message);
-        message.title == Self::GITBUTLER_INTEGRATION_COMMIT_TITLE
-            || message.title == Self::GITBUTLER_WORKSPACE_COMMIT_TITLE
+        let title = message.title.trim().as_bstr();
+        title == Self::GITBUTLER_INTEGRATION_COMMIT_TITLE
+            || title == Self::GITBUTLER_WORKSPACE_COMMIT_TITLE
     }
 }
 

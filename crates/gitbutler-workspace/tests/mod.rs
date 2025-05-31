@@ -27,18 +27,31 @@ mod checkout_branch_trees {
 
         let ctx = CommandContext::open(&project, AppSettings::default()).unwrap();
 
-        branch_actions::set_base_branch(&ctx, &"refs/remotes/origin/master".parse().unwrap())
-            .unwrap();
+        branch_actions::set_base_branch(
+            &ctx,
+            &"refs/remotes/origin/master".parse().unwrap(),
+            false,
+            ctx.project().exclusive_worktree_access().write_permission(),
+        )
+        .unwrap();
 
-        let stach_entry_1 =
-            branch_actions::create_virtual_branch(&ctx, &BranchCreateRequest::default()).unwrap();
+        let stach_entry_1 = branch_actions::create_virtual_branch(
+            &ctx,
+            &BranchCreateRequest::default(),
+            ctx.project().exclusive_worktree_access().write_permission(),
+        )
+        .unwrap();
 
         fs::write(test_project.path().join("foo.txt"), "content").unwrap();
 
         branch_actions::create_commit(&ctx, stach_entry_1.id, "commit one", None).unwrap();
 
-        let stack_entry_2 =
-            branch_actions::create_virtual_branch(&ctx, &BranchCreateRequest::default()).unwrap();
+        let stack_entry_2 = branch_actions::create_virtual_branch(
+            &ctx,
+            &BranchCreateRequest::default(),
+            ctx.project().exclusive_worktree_access().write_permission(),
+        )
+        .unwrap();
 
         fs::write(test_project.path().join("bar.txt"), "content").unwrap();
 
